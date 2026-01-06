@@ -33,15 +33,16 @@ class FileManager:
                 print(f"Created directory: {directory_path}")
                 return True
             
-            # Count files before deletion
-            file_count = sum(1 for _ in Path(directory_path).rglob('*') if _.is_file())
+            # Count items (files AND directories) before deletion
+            items = os.listdir(directory_path)
+            item_count = len(items)
             
-            if file_count == 0:
+            if item_count == 0:
                 print(f"Directory {directory_path} is already empty")
                 return True
             
             # Remove all files and subdirectories
-            for item in os.listdir(directory_path):
+            for item in items:
                 item_path = os.path.join(directory_path, item)
                 try:
                     if os.path.isfile(item_path) or os.path.islink(item_path):
@@ -52,7 +53,7 @@ class FileManager:
                     print(f"Failed to delete {item_path}: {e}")
                     return False
             
-            print(f"Cleared {file_count} files from {directory_path}")
+            print(f"Cleared {item_count} items from {directory_path}")
             return True
             
         except Exception as e:

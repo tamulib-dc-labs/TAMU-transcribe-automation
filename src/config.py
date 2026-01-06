@@ -46,8 +46,15 @@ class PipelineConfig:
     git_username: str = "JvkChaitanya"
     git_token: str = ""  # Set via environment variable GIT_TOKEN
     
+    # --- From JSON Mode Settings ---
+    from_json: bool = False  # Flag to enable JSON-based processing
+    config_repo_name: str = "edge-grant-reviewer"  # Reviewer repo name
+    config_json_path: str = "public/config-to-process.json"  # Input config in reviewer repo
+    output_config_path: str = "public/config.json"  # Output config to update in reviewer repo
+    max_json_files: int = 20  # Maximum number of files to process from JSON (0 = no limit)
+    
     # --- Cache Directories ---
-    cache_dir: str = "/scratch/user/jvk_chaitanya/cache"
+    cache_dir: str = "/scratch/group/tamu_libr_dc/cache"
     
     # --- Transcription Settings ---
     whisper_model: str = "large-v3"
@@ -82,6 +89,11 @@ class PipelineConfig:
     def git_repo_path(self) -> str:
         """Path to git repository (one level above working directory)."""
         return os.path.join(os.path.dirname(self.working_dir), self.git_repo_name)
+    
+    @property
+    def config_repo_path(self) -> str:
+        """Path to config repository (edge-grant-reviewer, one level above working directory)."""
+        return os.path.join(os.path.dirname(self.working_dir), self.config_repo_name)
     
     @property
     def data_dir(self) -> str:

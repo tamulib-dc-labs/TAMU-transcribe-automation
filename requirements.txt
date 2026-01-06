@@ -5,3 +5,6 @@ whisperx
 torch
 pandas
 smbprotocol
+soundfile
+noisereduce
+yt-dlp
