@@ -122,4 +122,38 @@ class ModelDownloader:
         print(f"\n{'='*60}")
         print(f"All models downloaded to: {cache_location}")
         print(f"{'='*60}")
+        
+        # CRITICAL: Ensure alignment models are in checkpoints/ subdirectory
+        # Torchaudio expects models at: {HF_HOME}/checkpoints/model_name.pth
+        print(f"\nVerifying alignment model structure for offline mode...")
+        checkpoints_dir = os.path.join(cache_location, "checkpoints")
+        os.makedirs(checkpoints_dir, exist_ok=True)
+        
+        # Check for alignment model files
+        alignment_patterns = ["wav2vec2_*.pth", "wav2vec2_*.pt"]
+        found_models = []
+        
+        for pattern in alignment_patterns:
+            import glob
+            models = glob.glob(os.path.join(cache_location, pattern))
+            for model_file in models:
+                model_name = os.path.basename(model_file)
+                checkpoint_path = os.path.join(checkpoints_dir, model_name)
+                
+                if not os.path.exists(checkpoint_path):
+                    import shutil
+                    shutil.copy2(model_file, checkpoint_path)
+                    print(f"  ✓ Copied {model_name} to checkpoints/")
+                    found_models.append(model_name)
+                else:
+                    print(f"  ✓ {model_name} already in checkpoints/")
+                    found_models.append(model_name)
+        
+        if found_models:
+            print(f"\nAlignment models ready for offline use: {len(found_models)} models")
+        else:
+            print(f"\n⚠ WARNING: No alignment models found. Run:")
+            print(f"  export HF_HOME={cache_location}")
+            print(f"  python -c 'import whisperx; whisperx.load_align_model(\"en\", \"cpu\")'")
+        
         return True

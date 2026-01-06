@@ -14,11 +14,14 @@ import sys
 import time
 import subprocess
 from pathlib import Path
+from typing import List, Dict, Any
 
 from src.config import get_config
 from src.utils.file_manager import FileManager, CommandRunner
 from src.utils.logger import Logger
 from src.git.uploader import GitUploader
+from src.git.config_repo import ConfigRepoManager
+from src.utils.json_downloader import JsonAudioDownloader
 
 
 class TranscriptionPipeline:
@@ -29,11 +32,16 @@ class TranscriptionPipeline:
         self.config = get_config()
         self.file_manager = FileManager()
         self.command_runner = CommandRunner()
+        
+        # For from_json mode: store processed entries and their info
+        self._processed_entries: List[Dict[str, Any]] = []
+        self._config_repo_manager = None
     
     def run(self):
         """Execute the complete pipeline."""
         Logger.log_info("Starting Transcription Automation Pipeline")
         Logger.log_info(f"Working directory: {self.config.working_dir}")
+        Logger.log_info(f"Mode: {'FROM_JSON' if self.config.from_json else 'SMB'}")
         
         # Step 1: Load environment modules
         self._load_modules()
@@ -44,8 +52,11 @@ class TranscriptionPipeline:
         # Step 3: Prepare directories
         self._prepare_directories()
         
-        # Step 4: Download audio files
-        self._download_audio_files()
+        # Step 4: Download audio files (different sources based on mode)
+        if self.config.from_json:
+            self._download_audio_from_json()
+        else:
+            self._download_audio_files()
         
         # Step 5: Download models
         if self.config.download_models_before_slurm:
@@ -61,8 +72,16 @@ class TranscriptionPipeline:
             # Step 8: Monitor job
             self._monitor_slurm_job(job_id)
             
+            # Step 8.5: Rename output files for from_json mode
+            if self.config.from_json:
+                self._rename_output_files()
+            
             # Step 9: Upload results to GitHub
             self._upload_to_github()
+            
+            # Step 10: Update config repo (only for from_json mode)
+            if self.config.from_json:
+                self._update_config_repo()
         
         Logger.log_info("Pipeline execution completed")
     
@@ -341,7 +360,7 @@ print("NLTK punkt_tab downloaded successfully")
         
         token = self.config.get_git_token()
         
-        uploader = GitUploader(
+        self._uploader = GitUploader(
             source_folder=self.config.oral_output_path,
             repo_folder=self.config.git_repo_path,
             owner=self.config.git_owner,
@@ -350,7 +369,160 @@ print("NLTK punkt_tab downloaded successfully")
             token=token
         )
         
-        if uploader.upload():
+        if self._uploader.upload():
             Logger.log_step(10, "Upload results to GitHub", "COMPLETED")
         else:
             Logger.log_error("GitHub upload failed")
+    
+    def _download_audio_from_json(self):
+        """Download audio files from JSON config (from_json mode)."""
+        Logger.log_step(6, "Download audio files from JSON config", "STARTED")
+        
+        token = self.config.get_git_token()
+        
+        # Step 1: Setup config repository (edge-grant-reviewer)
+        Logger.log_info("Setting up config repository...")
+        self._config_repo_manager = ConfigRepoManager(
+            repo_folder=self.config.config_repo_path,
+            owner=self.config.git_owner,
+            repo_name=self.config.config_repo_name,
+            username=self.config.git_username,
+            token=token,
+            config_json_path=self.config.config_json_path,
+            output_config_path=self.config.output_config_path
+        )
+        
+        if not self._config_repo_manager.setup_repository():
+            Logger.log_error("Failed to setup config repository")
+            sys.exit(1)
+        
+        # Step 2: Read config-to-process.json
+        entries = self._config_repo_manager.read_config_to_process()
+        
+        if not entries:
+            Logger.log_warning("No entries found in config-to-process.json")
+            return
+        
+        Logger.log_info(f"Found {len(entries)} entries to process")
+        
+        # Step 3: Download audio files
+        # Pass module load command for HPC FFmpeg loading
+        downloader = JsonAudioDownloader(
+            input_dir=self.config.oral_input_path,
+            module_load_command=self.config.module_load_command
+        )
+        self._processed_entries = downloader.process_config_entries(
+            entries,
+            max_files=self.config.max_json_files
+        )
+        
+        if not self._processed_entries:
+            Logger.log_warning("No audio files were successfully downloaded")
+            return
+        
+        Logger.log_step(6, f"Downloaded {len(self._processed_entries)} audio files", "COMPLETED")
+    
+    def _update_config_repo(self):
+        """Update config.json with new entries (from_json mode only)."""
+        Logger.log_step(11, "Update config.json in reviewer repo", "STARTED")
+        
+        if not self._processed_entries:
+            Logger.log_warning("No processed entries to update")
+            return
+        
+        if not self._config_repo_manager:
+            Logger.log_error("Config repo manager not initialized")
+            return
+        
+        # Use folder names for URL lookup since files have been renamed to use folder names
+        folder_names = [entry.get("_folder_name") for entry in self._processed_entries if entry.get("_folder_name")]
+        
+        if hasattr(self, '_uploader') and self._uploader:
+            file_urls = self._uploader.get_uploaded_file_urls(folder_names)
+        else:
+            Logger.log_warning("Uploader not available, cannot get file URLs")
+            file_urls = {}
+        
+        # Build new config entries
+        new_entries = []
+        for entry in self._processed_entries:
+            name = entry.get("name", "")
+            folder_name = entry.get("_folder_name", name)
+            audio_url = entry.get("audio", "")
+            
+            # Get uploaded URLs using folder name as key (files were renamed)
+            urls = file_urls.get(folder_name, {})
+            json_url = urls.get("json_url", "")
+            vtt_url = urls.get("vtt_url", "")
+            
+            new_entry = {
+                "audio": audio_url,
+                "url": json_url,
+                "vtt": vtt_url,
+                "name": name
+            }
+            new_entries.append(new_entry)
+            Logger.log_info(f"  {name}: JSON={json_url}, VTT={vtt_url}")
+        
+        # Update config.json
+        if not self._config_repo_manager.update_config_json(new_entries):
+            Logger.log_error("Failed to update config.json")
+            return
+        
+        # Commit and push changes
+        if not self._config_repo_manager.commit_and_push():
+            Logger.log_error("Failed to push config.json changes")
+            return
+        
+        Logger.log_step(11, "Update config.json in reviewer repo", "COMPLETED")
+    
+    def _rename_output_files(self):
+        """Rename output files from audio filename to folder name (from_json mode only).
+        
+        This ensures the JSON/VTT files use the 'name' field from config instead of
+        the audio filename (which may include qualifiers like '-medium').
+        """
+        Logger.log_step("8.5", "Renaming output files to use folder names", "STARTED")
+        
+        if not self._processed_entries:
+            Logger.log_warning("No processed entries for renaming")
+            return
+        
+        json_dir = os.path.join(self.config.oral_output_path, "json")
+        vtt_dir = os.path.join(self.config.oral_output_path, "vtts")
+        
+        renamed_count = 0
+        
+        for entry in self._processed_entries:
+            folder_name = entry.get("_folder_name", "")  # This is the 'name' field
+            audio_filename = entry.get("_audio_filename", "")
+            
+            if not folder_name or not audio_filename:
+                continue
+            
+            # Get the base names
+            audio_base = os.path.splitext(audio_filename)[0]  # e.g., "02_00113-a_01-medium"
+            target_base = folder_name  # e.g., "02_00113-a_01"
+            
+            # Skip if they're the same
+            if audio_base == target_base:
+                continue
+            
+            # Rename JSON file
+            old_json = os.path.join(json_dir, f"{audio_base}.json")
+            new_json = os.path.join(json_dir, f"{target_base}.json")
+            if os.path.exists(old_json) and not os.path.exists(new_json):
+                os.rename(old_json, new_json)
+                Logger.log_info(f"Renamed: {audio_base}.json -> {target_base}.json")
+                renamed_count += 1
+            
+            # Rename VTT file
+            old_vtt = os.path.join(vtt_dir, f"{audio_base}.vtt")
+            new_vtt = os.path.join(vtt_dir, f"{target_base}.vtt")
+            if os.path.exists(old_vtt) and not os.path.exists(new_vtt):
+                os.rename(old_vtt, new_vtt)
+                Logger.log_info(f"Renamed: {audio_base}.vtt -> {target_base}.vtt")
+                renamed_count += 1
+        
+        Logger.log_step("8.5", f"Renamed {renamed_count} output files", "COMPLETED")
+

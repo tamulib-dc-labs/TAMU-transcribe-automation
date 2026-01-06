@@ -226,3 +226,67 @@ class GitUploader:
             return False
         
         return True
+    
+    def get_uploaded_file_urls(self, folder_names: list = None) -> dict:
+        """
+        Build GitHub Pages URLs for uploaded files.
+        
+        Args:
+            folder_names: List of folder names (audio file base names) to get URLs for
+        
+        Returns:
+            dict: Mapping of name -> {json_url, vtt_url}
+        """
+        import os
+        
+        # GitHub Pages URL format
+        base_url = f"https://{self.owner}.github.io/{self.repo_name}"
+        
+        file_urls = {}
+        
+        # JSON files are in source_folder/json/
+        # VTT files are in source_folder/vtts/
+        json_dir = os.path.join(self.source_folder, "json")
+        vtt_dir = os.path.join(self.source_folder, "vtts")
+        
+        # Get available JSON files
+        json_files = {}
+        if os.path.exists(json_dir):
+            for f in os.listdir(json_dir):
+                if f.endswith('.json'):
+                    # Extract base name (without extension)
+                    base_name = os.path.splitext(f)[0]
+                    json_files[base_name] = f
+        
+        # Get available VTT files
+        vtt_files = {}
+        if os.path.exists(vtt_dir):
+            for f in os.listdir(vtt_dir):
+                if f.endswith('.vtt'):
+                    base_name = os.path.splitext(f)[0]
+                    vtt_files[base_name] = f
+        
+        # If folder_names provided, use those; otherwise use all found files
+        if folder_names is None:
+            folder_names = list(set(list(json_files.keys()) + list(vtt_files.keys())))
+        
+        for name in folder_names:
+            json_url = None
+            vtt_url = None
+            
+            # Look for matching JSON file
+            if name in json_files:
+                json_url = f"{base_url}/json/{json_files[name]}"
+            
+            # Look for matching VTT file
+            if name in vtt_files:
+                vtt_url = f"{base_url}/vtts/{vtt_files[name]}"
+            
+            if json_url or vtt_url:
+                file_urls[name] = {
+                    "json_url": json_url,
+                    "vtt_url": vtt_url
+                }
+        
+        return file_urls
+
