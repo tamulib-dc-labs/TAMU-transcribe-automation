@@ -406,10 +406,11 @@ print("NLTK punkt_tab downloaded successfully")
         Logger.log_info(f"Found {len(entries)} entries to process")
         
         # Step 3: Download audio files
-        # Pass module load command for HPC FFmpeg loading
+        # Pass module load command for HPC FFmpeg loading and venv path for yt-dlp
         downloader = JsonAudioDownloader(
             input_dir=self.config.oral_input_path,
-            module_load_command=self.config.module_load_command
+            module_load_command=self.config.module_load_command,
+            venv_bin_path=self.config.venv_bin_path
         )
         self._processed_entries = downloader.process_config_entries(
             entries,
