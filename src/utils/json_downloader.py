@@ -14,16 +14,18 @@ from typing import List, Dict, Any, Tuple, Optional
 class JsonAudioDownloader:
     """Downloads audio files from HLS URLs specified in config JSON."""
     
-    def __init__(self, input_dir: str, module_load_command: Optional[str] = None):
+    def __init__(self, input_dir: str, module_load_command: Optional[str] = None, venv_bin_path: Optional[str] = None):
         """
         Initialize JSON audio downloader.
         
         Args:
             input_dir: Base directory where audio files will be saved
             module_load_command: Optional HPC module load command (e.g., "ml FFmpeg")
+            venv_bin_path: Optional path to venv bin directory (to find yt-dlp)
         """
         self.input_dir = input_dir
         self.module_load_command = module_load_command
+        self.venv_bin_path = venv_bin_path
     
     @staticmethod
     def parse_audio_url(audio_url: str, name: str) -> Tuple[str, str]:
@@ -79,8 +81,13 @@ class JsonAudioDownloader:
         print(f"    From: {audio_url}")
         print(f"    To: {output_path}")
         
-        # Use yt-dlp for HLS stream download
-        cmd = f'yt-dlp --no-warnings -o "{output_path}" "{audio_url}"'
+        # Use yt-dlp from venv if available, otherwise use system yt-dlp
+        if self.venv_bin_path:
+            yt_dlp_path = os.path.join(self.venv_bin_path, "yt-dlp")
+            cmd = f'"{yt_dlp_path}" --no-warnings -o "{output_path}" "{audio_url}"'
+        else:
+            cmd = f'yt-dlp --no-warnings -o "{output_path}" "{audio_url}"'
+        
         if self.module_load_command:
             cmd = f'{self.module_load_command} && {cmd}'
         

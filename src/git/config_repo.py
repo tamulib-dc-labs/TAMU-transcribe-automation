@@ -124,12 +124,35 @@ class ConfigRepoManager:
         
         return True
     
-    def read_config_to_process(self) -> List[Dict[str, Any]]:
+    def get_processed_names(self) -> set:
         """
-        Read and parse config-to-process.json.
+        Get set of names that have already been processed (exist in config.json).
         
         Returns:
-            List of config entries with audio, url, vtt, and name fields
+            Set of name strings that are already in config.json
+        """
+        config_path = os.path.join(self.repo_folder, self.output_config_path)
+        
+        if not os.path.exists(config_path):
+            return set()
+        
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                existing_entries = json.load(f)
+            
+            # Extract all names from existing entries
+            processed_names = {entry.get("name", "") for entry in existing_entries if entry.get("name")}
+            return processed_names
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Warning: Could not read config.json for processed names: {e}")
+            return set()
+    
+    def read_config_to_process(self) -> List[Dict[str, Any]]:
+        """
+        Read and parse config-to-process.json, filtering out already processed entries.
+        
+        Returns:
+            List of config entries that have NOT yet been processed
         """
         config_path = os.path.join(self.repo_folder, self.config_json_path)
         
@@ -141,7 +164,28 @@ class ConfigRepoManager:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
             
-            print(f"Read {len(config_data)} entries from config-to-process.json")
+            total_entries = len(config_data)
+            print(f"Read {total_entries} entries from config-to-process.json")
+            
+            # Filter out already processed entries
+            processed_names = self.get_processed_names()
+            if processed_names:
+                print(f"Found {len(processed_names)} already processed entries in config.json")
+                
+                new_entries = []
+                skipped = 0
+                for entry in config_data:
+                    name = entry.get("name", "")
+                    if name in processed_names:
+                        skipped += 1
+                    else:
+                        new_entries.append(entry)
+                
+                if skipped > 0:
+                    print(f"Skipping {skipped} already processed entries")
+                print(f"Remaining entries to process: {len(new_entries)}")
+                return new_entries
+            
             return config_data
         except json.JSONDecodeError as e:
             print(f"Error parsing config JSON: {e}")

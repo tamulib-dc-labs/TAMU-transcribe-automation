@@ -86,6 +86,11 @@ class PipelineConfig:
         return os.path.join(self.venv_path, "bin", "pip")
     
     @property
+    def venv_bin_path(self) -> str:
+        """Path to bin directory in virtual environment."""
+        return os.path.join(self.venv_path, "bin")
+    
+    @property
     def git_repo_path(self) -> str:
         """Path to git repository (one level above working directory)."""
         return os.path.join(os.path.dirname(self.working_dir), self.git_repo_name)
