@@ -142,10 +142,10 @@ def calculate_word_score_buckets(result: Dict) -> Dict[str, float]:
     """
     Calculate word score bucket thresholds based on percentiles.
     
-    Returns thresholds that divide scores into three buckets:
-    - Bad: 25th percentile threshold
-    - Neutral: 75th percentile threshold  
-    - Good: max score
+    Returns thresholds that divide scores into four buckets:
+    - Bad: 25th percentile threshold (below = terrible)
+    - Neutral: 50th percentile threshold (below = poor)
+    - Good: 75th percentile threshold (below = mediocre, above = good)
     """
     all_scores = []
     for segment in result.get('segments', []):
@@ -156,26 +156,27 @@ def calculate_word_score_buckets(result: Dict) -> Dict[str, float]:
                     all_scores.append(score)
     
     if not all_scores:
-        return {"Good": 1.0, "Neutral": 0.5, "Bad": 0.0}
+        return {"Good": 0.9, "Neutral": 0.7, "Bad": 0.5}
     
     all_scores.sort()
     n = len(all_scores)
     
     # Calculate percentile-based thresholds
-    # 25th percentile = Bad threshold
-    # 75th percentile = Neutral threshold
-    # Max = Good threshold
+    # 25th percentile = Bad threshold (bottom 25% are terrible)
+    # 50th percentile = Neutral threshold (bottom 50% are poor)
+    # 75th percentile = Good threshold (top 25% are good)
     idx_25 = int(n * 0.25)
+    idx_50 = int(n * 0.50)
     idx_75 = int(n * 0.75)
     
-    bad_threshold = all_scores[idx_25] if idx_25 < n else all_scores[-1]
-    neutral_threshold = all_scores[idx_75] if idx_75 < n else all_scores[-1]
-    good_threshold = all_scores[-1]  # Max score
+    bad_threshold = round(all_scores[idx_25] if idx_25 < n else all_scores[-1], 3)
+    neutral_threshold = round(all_scores[idx_50] if idx_50 < n else all_scores[-1], 3)
+    good_threshold = round(all_scores[idx_75] if idx_75 < n else all_scores[-1], 3)
     
     return {
-        "Good": round(good_threshold, 3),
-        "Neutral": round(neutral_threshold, 3),
-        "Bad": round(bad_threshold, 3)
+        "Good": good_threshold,
+        "Neutral": neutral_threshold,
+        "Bad": bad_threshold
     }
 
 
