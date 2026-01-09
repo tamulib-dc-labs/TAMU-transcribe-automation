@@ -148,10 +148,10 @@ def find_audio_files(root_dir: Path, output_dir: Path = None,
     return sorted(audio_files)
 
 
-def transcribe_audio(audio_path: str, model, device: str, language: str = None) -> Dict:
+def transcribe_audio(audio_path: str, model, align_model, align_metadata, 
+                      device: str, language: str = None) -> Dict:
     """
-    Simple transcription using WhisperX without VAD or alignment.
-    Uses whisperx.transcribe directly for straightforward transcription.
+    Transcription using WhisperX with alignment for word-level timestamps and scores.
     """
     try:
         logger.info(f"Transcribing: {os.path.basename(audio_path)}")
@@ -159,10 +159,24 @@ def transcribe_audio(audio_path: str, model, device: str, language: str = None) 
         # Load audio using whisperx
         audio = whisperx.load_audio(audio_path)
         
-        # Simple transcription - whisperx handles everything
+        # Transcribe
         result = model.transcribe(audio, batch_size=16, language=language)
-        
         logger.info(f"  Transcribed {len(result.get('segments', []))} segments")
+        
+        # Apply alignment for word-level timestamps and scores
+        if align_model is not None and result.get('segments'):
+            try:
+                result = whisperx.align(
+                    result["segments"], 
+                    align_model, 
+                    align_metadata, 
+                    audio, 
+                    device, 
+                    return_char_alignments=False
+                )
+                logger.info(f"  Aligned with word-level timestamps")
+            except Exception as align_error:
+                logger.warning(f"  Alignment failed: {align_error}, keeping segment-level only")
         
         return result
         
@@ -179,8 +193,7 @@ def transcribe_directory(input_dir: str, output_dir: str, model_name: str = "lar
                          max_line_width: int = 42, max_line_count: int = 2, 
                          highlight_words: bool = False):
     """
-    Transcribe all audio files in a directory using WhisperX.
-    No VAD or alignment model - simple straightforward transcription.
+    Transcribe all audio files in a directory using WhisperX with alignment.
     """
     input_path = Path(input_dir)
     output_path = Path(output_dir)
@@ -197,13 +210,26 @@ def transcribe_directory(input_dir: str, output_dir: str, model_name: str = "lar
     logger.info(f"Using device: {device}")
     logger.info(f"Model: {model_path}")
     
-    # Load the whisperx model with noise-robust ASR options
+    # Load the whisperx model
     asr_options = {
         "suppress_numerals": True,  # Reduce WER by spelling out numbers
     }
     model = whisperx.load_model(model_path, device, compute_type=compute_type, 
                                  language=language if language else "en",
                                  asr_options=asr_options)
+    
+    # Load alignment model for word-level timestamps
+    align_lang = language if language else "en"
+    align_model = None
+    align_metadata = None
+    try:
+        align_model, align_metadata = whisperx.load_align_model(
+            language_code=align_lang, device=device
+        )
+        logger.info(f"Loaded alignment model for: {align_lang}")
+    except Exception as e:
+        logger.warning(f"Failed to load alignment model: {e}")
+        logger.warning("Will proceed without word-level alignment")
 
     successful = 0
     failed = 0
@@ -211,8 +237,8 @@ def transcribe_directory(input_dir: str, output_dir: str, model_name: str = "lar
     for audio_file in tqdm(audio_files, desc="Transcribing"):
         try:
             result = transcribe_audio(
-                str(audio_file), model, device, 
-                language=language if language else "en"
+                str(audio_file), model, align_model, align_metadata,
+                device, language=language if language else "en"
             )
 
             if result:
@@ -233,6 +259,8 @@ def transcribe_directory(input_dir: str, output_dir: str, model_name: str = "lar
     
     logger.info(f"Complete! Success: {successful}, Failed: {failed}")
     del model
+    if align_model:
+        del align_model
     gc.collect()
 
 def _process_gpu_batch(args):
@@ -257,11 +285,23 @@ def _process_gpu_batch(args):
     model = whisperx.load_model(model_path, device, compute_type=compute_type, language=language if language else "en")
     logger.info(f"[GPU {gpu_id}] Loaded model: {model_path}")
     
+    # Load alignment model for word-level timestamps
+    align_lang = language if language else "en"
+    align_model = None
+    align_metadata = None
+    try:
+        align_model, align_metadata = whisperx.load_align_model(
+            language_code=align_lang, device=device
+        )
+        logger.info(f"[GPU {gpu_id}] Loaded alignment model for: {align_lang}")
+    except Exception as e:
+        logger.warning(f"[GPU {gpu_id}] Failed to load alignment model: {e}")
+    
     for audio_file in file_batch:
         try:
             result = transcribe_audio(
-                str(audio_file), model, device,
-                language=language if language else "en"
+                str(audio_file), model, align_model, align_metadata,
+                device, language=language if language else "en"
             )
             if result:
                 save_transcription(result, audio_file, output_path, 
@@ -270,6 +310,8 @@ def _process_gpu_batch(args):
             logger.error(f"[GPU {gpu_id}] Failed on {audio_file}: {str(e)}")
     
     del model
+    if align_model:
+        del align_model
     gc.collect()
     torch.cuda.empty_cache()
 
