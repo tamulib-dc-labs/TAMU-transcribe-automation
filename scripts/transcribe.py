@@ -160,7 +160,7 @@ def transcribe_audio(audio_path: str, model, device: str, language: str = None) 
         audio = whisperx.load_audio(audio_path)
         
         # Simple transcription without VAD - whisperx handles everything
-        result = model.transcribe(audio, batch_size=16, language=language)
+        result = model.transcribe(audio, batch_size=16, language=language, beam_size=10, best_of=10, condition_on_previous_text=False)
         
         logger.info(f"  Transcribed {len(result.get('segments', []))} segments")
         
