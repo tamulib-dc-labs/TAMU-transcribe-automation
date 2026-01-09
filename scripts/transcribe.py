@@ -159,8 +159,8 @@ def transcribe_audio(audio_path: str, model, device: str, language: str = None) 
         # Load audio using whisperx
         audio = whisperx.load_audio(audio_path)
         
-        # Simple transcription without VAD - whisperx handles everything
-        result = model.transcribe(audio, batch_size=16, language=language, beam_size=10, best_of=10, condition_on_previous_text=False)
+        # Simple transcription - whisperx handles everything
+        result = model.transcribe(audio, batch_size=16, language=language)
         
         logger.info(f"  Transcribed {len(result.get('segments', []))} segments")
         
@@ -197,9 +197,13 @@ def transcribe_directory(input_dir: str, output_dir: str, model_name: str = "lar
     logger.info(f"Using device: {device}")
     logger.info(f"Model: {model_path}")
     
-    # Load the whisperx model
+    # Load the whisperx model with noise-robust ASR options
+    asr_options = {
+        "suppress_numerals": True,  # Reduce WER by spelling out numbers
+    }
     model = whisperx.load_model(model_path, device, compute_type=compute_type, 
-                                 language=language if language else "en")
+                                 language=language if language else "en",
+                                 asr_options=asr_options)
 
     successful = 0
     failed = 0
