@@ -28,6 +28,12 @@ from tqdm import tqdm
 import gc
 import warnings
 import argparse
+import tempfile
+import numpy as np
+import librosa
+import soundfile as sf
+import noisereduce as nr
+from scipy import signal
 
 import nltk
 if 'NLTK_DATA' in os.environ:
@@ -54,6 +60,62 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 DEFAULT_ASR_OPTIONS = {"beam_size": 5, "patience": 1.0}
+
+
+def clean_audio(audio_path: str, temp_dir: str = None) -> str:
+    """
+    Pre-process audio by removing noise using combined method.
+    Combined approach: high-pass filter → spectral subtraction → wiener filter
+    
+    Args:
+        audio_path: Path to input audio file
+        temp_dir: Directory for temporary files (default: system temp)
+    
+    Returns:
+        Path to cleaned audio file
+    """
+    if temp_dir is None:
+        temp_dir = tempfile.gettempdir()
+    
+    # Load audio with librosa
+    audio, sr = librosa.load(audio_path, sr=None)
+    logger.info(f"  Pre-processing audio: {os.path.basename(audio_path)}")
+    
+    # 1. High-pass filter to remove low-frequency rumble (80 Hz cutoff)
+    nyquist_freq = sr / 2
+    cutoff_freq = 80
+    normalized_cutoff = cutoff_freq / nyquist_freq
+    if normalized_cutoff >= 1.0:
+        normalized_cutoff = 0.99
+    sos = signal.butter(4, normalized_cutoff, btype='high', output='sos')
+    audio = signal.sosfilt(sos, audio)
+    
+    # 2. Spectral subtraction with noisereduce
+    # Use first 1 second as noise profile
+    noise_duration = 1.0
+    noise_sample_count = int(sr * noise_duration)
+    noise_clip = audio[:noise_sample_count]
+    audio = nr.reduce_noise(
+        y=audio,
+        sr=sr,
+        y_noise=noise_clip,
+        stationary=True,
+        prop_decrease=0.95  # Aggressive noise reduction
+    )
+    
+    # 3. Wiener-like filter (median filtering) for smoothing
+    audio = signal.medfilt(audio, kernel_size=5)
+    
+    # Ensure audio is in valid range
+    audio = np.clip(audio, -1.0, 1.0)
+    
+    # Save to temp file
+    cleaned_path = os.path.join(temp_dir, f"cleaned_{os.path.basename(audio_path)}")
+    cleaned_path = os.path.splitext(cleaned_path)[0] + ".wav"
+    sf.write(cleaned_path, audio, sr)
+    
+    logger.info(f"  ✓ Audio cleaned and saved to temp file")
+    return cleaned_path
 
 
 def calculate_word_score_buckets(result: Dict) -> Dict[str, float]:
@@ -152,12 +214,17 @@ def transcribe_audio(audio_path: str, model, align_model, align_metadata,
                       device: str, language: str = None) -> Dict:
     """
     Transcription using WhisperX with alignment for word-level timestamps and scores.
+    Includes audio pre-processing for noise removal.
     """
+    cleaned_audio_path = None
     try:
         logger.info(f"Transcribing: {os.path.basename(audio_path)}")
         
-        # Load audio using whisperx
-        audio = whisperx.load_audio(audio_path)
+        # Pre-process audio to remove noise
+        cleaned_audio_path = clean_audio(audio_path)
+        
+        # Load cleaned audio using whisperx
+        audio = whisperx.load_audio(cleaned_audio_path)
         
         # Transcribe
         result = model.transcribe(audio, batch_size=16, language=language)
@@ -185,6 +252,13 @@ def transcribe_audio(audio_path: str, model, align_model, align_metadata,
         import traceback
         logger.error(traceback.format_exc())
         return None
+    finally:
+        # Clean up temp file
+        if cleaned_audio_path and os.path.exists(cleaned_audio_path):
+            try:
+                os.remove(cleaned_audio_path)
+            except:
+                pass
 
 
 def transcribe_directory(input_dir: str, output_dir: str, model_name: str = "large-v2",
