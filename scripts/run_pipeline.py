@@ -1,35 +1,47 @@
-#!/usr/bin/env python3
-"""
-WhisperX Transcription Automation Pipeline - Entry Point
+"""Entry point for the full pipeline: download -> transcribe -> upload.
 
-This is the main entry point for running the transcription pipeline.
-All configuration is managed in src/config.py
+    python scripts/run_pipeline.py              # SMB mode
+    python scripts/run_pipeline.py --from-json  # reviewer-repo JSON mode
+
+Runs from a login node. It downloads audio, makes sure the models are cached,
+submits the Slurm job, waits for it, then uploads the transcripts.
 """
 
+from __future__ import annotations
+
+import argparse
 import sys
-import os
+from pathlib import Path
 
-# Add src directory to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.pipeline import TranscriptionPipeline
-from src.utils.logger import Logger
+from src.config import get_config  # noqa: E402
+from src.pipeline import TranscriptionPipeline  # noqa: E402
 
 
-def main():
-    """Main entry point for the pipeline."""
-    try:
-        pipeline = TranscriptionPipeline()
-        pipeline.run()
-    except KeyboardInterrupt:
-        Logger.log_warning("\nPipeline interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        Logger.log_error(f"Pipeline failed with error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--from-json", action="store_true",
+                        help="take the file list from the reviewer repo's config JSON")
+    parser.add_argument("--skip-download", action="store_true",
+                        help="audio is already in place")
+    parser.add_argument("--skip-upload", action="store_true",
+                        help="leave transcripts on disk")
+    parser.add_argument("--engine", choices=("hybrid", "words-only"), default=None,
+                        help="hybrid adds speaker labels (default); words-only skips them")
+    args = parser.parse_args(argv)
+
+    config = get_config()
+    if args.from_json:
+        config.from_json = True
+    if args.engine:
+        config.diarize = args.engine == "hybrid"
+
+    return TranscriptionPipeline(
+        skip_download=args.skip_download,
+        skip_upload=args.skip_upload,
+    ).run()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

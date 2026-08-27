@@ -1,10 +1,33 @@
-langchain
-transformers
-accelerate
-whisperx
+# Transcription: Parakeet-TDT (words) + Sortformer (speaker turns).
+# Both ship in nemo_toolkit[asr], so this is one model stack, not two.
+#
+# NeMo requires Python >= 3.10. On Grace: ml GCCcore/12.3.0 Python
+
+nemo_toolkit[asr]>=2.4
 torch
-pandas
-smbprotocol
-soundfile
+
+# Audio decode and resample. PyAV reads mp4/mkv in-process, so no ffmpeg
+# subprocess is spawned per file.
+soundfile>=0.12
+soxr>=0.3
+av>=12.0
+numpy>=1.24
+
+# Optional preprocessing. The denoise pass is off by default -- both models are
+# trained on noise-augmented audio and normalise their own input.
 noisereduce
+
+# Download and upload
+smbprotocol
 yt-dlp
+pandas
+tqdm
+
+# Removed with WhisperX:
+#   whisperx           -> Parakeet + Sortformer
+#   faster-whisper     |
+#   ctranslate2        |  came in via whisperx; no longer needed
+#   nvidia-cudnn-cu12  |  (and with it, the LD_LIBRARY_PATH shim in run.slurm)
+#   nltk               -> only used by whisperx's sentence splitting
+#   langchain          -> never on the transcription path
+#   accelerate         -> not needed by NeMo inference
