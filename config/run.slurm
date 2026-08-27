@@ -1,45 +1,79 @@
 #!/bin/bash
 ##NECESSARY JOB SPECIFICATIONS
-#SBATCH --job-name=speech_transcribe       #Set the job name to "JobExample4"
-#SBATCH --time=3:00:00              #Set the wall clock limit to 1hr and 30min
-#SBATCH --ntasks=2                   #Request 1 task
-#SBATCH --mem=40G                  #Request 2560MB (2.5GB) per task
-#SBATCH --output=transcribe_Out.%j      #Send stdout/err to "Example4Out.[jobID]"
-#SBATCH --gres=gpu:a100:2                 #Request 1 GPU per node can be 1 or 2
-#SBATCH --partition=gpu              #Request the GPU partition/queue
+#SBATCH --job-name=asr-transcribe
+#SBATCH --output=transcribe_Out.%j
+#SBATCH --array=0-3
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=48
+#SBATCH --mem=360G
+#SBATCH --gres=gpu:a100:2
+#SBATCH --partition=gpu
+#SBATCH --time=48:00:00
+#SBATCH --signal=B:TERM@900
 
-# modules needed for running DL jobs. Module restore will also work
-#module restore dl
-ml GCCcore/10.3.0 FFmpeg CUDA Python
+# The whole pipeline runs here. Nothing is staged in advance:
+#
+#   1. enumerate the collection into the shared queue  (no bytes moved)
+#   2. each task fetches, transcribes and discards one interview at a time
+#
+# Parakeet-TDT produces words, timings and per-word confidence; Sortformer
+# produces speaker turns. Both are NeMo and both derive time from the same
+# 16 kHz waveform through the same FastConformer frontend, so the fusion joins
+# two MEASURED time bases -- alignment error is bounded by Sortformer's 80 ms
+# frame grid.
+#
+# A Grace GPU node has exactly 2x A100, so one model is pinned to each and they
+# genuinely overlap.
+#
+# The gpu partition allows 4 days. Interrupted anyway? Just sbatch again:
+# finished interviews are skipped, in-flight ones are reaped and redone.
 
-# Python venv - PATH WILL BE INJECTED BY PIPELINE
+# NeMo needs Python >= 3.10. GCCcore/10.3.0 Python is 3.9 and will NOT work.
+ml GCCcore/12.3.0 Python FFmpeg CUDA
+
+# Compute nodes have no direct internet. WebProxy sets http_proxy/https_proxy,
+# which is what lets this job download its own audio and its own model weights
+# instead of needing anything staged beforehand.
+{{WEB_PROXY}}
+
+# PATH WILL BE INJECTED BY PIPELINE
 source {{VENV_ACTIVATE_PATH}}
 
-# Set cuDNN library path from venv's nvidia-cudnn-cu12 package
-# This must be set before running Python to avoid "Unable to load libcudnn_cnn.so" errors
-CUDNN_PATH=$(python -c "import nvidia.cudnn; print(nvidia.cudnn.__path__[0])" 2>/dev/null)
-if [ -n "$CUDNN_PATH" ]; then
-    export LD_LIBRARY_PATH="$CUDNN_PATH/lib:$LD_LIBRARY_PATH"
-fi
-
-# Set HuggingFace cache directory
+# Shared model cache on scratch. NeMo and Hugging Face download on first use
+# and reuse it after, so the first task to need a model pays for it and the
+# rest hit the cache.
 export HF_HOME={{HF_CACHE}}
+export TORCH_HOME={{HF_CACHE}}
+mkdir -p "$HF_HOME"
 
-export NLTK_DATA={{NLTK_CACHE}}
+# Credentials for fetching audio. Passed through the environment so they never
+# get written into the queue.
+export SMB_USERNAME={{SMB_USERNAME}}
 
-mkdir -p $NLTK_DATA
+# ---------------------------------------------------------------------------
+# 1. Enumerate the collection into the queue. Moves no audio -- it records
+#    references. Idempotent, so every array task runs it and whichever gets
+#    there first populates the queue for the rest.
+# ---------------------------------------------------------------------------
+python {{TRANSCRIBE_SCRIPT}} fill \
+    --queue  "{{QUEUE_PATH}}" \
+    --output "{{ORAL_OUTPUT_PATH}}" \
+    --source {{SOURCE}} {{FILL_ARGS}}
 
-
-# scripts or executables
-
-# IMPORTANT: Enable offline mode to prevent internet access attempts
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
-
-# PATHS WILL BE INJECTED BY PIPELINE
-python {{TRANSCRIBE_SCRIPT}} \
-    --model "{{WHISPER_MODEL}}" \
-    {{LANGUAGE_ARG}}\
-    --parallel \
-    "{{ORAL_INPUT_PATH}}/" \
-    "{{ORAL_OUTPUT_PATH}}/"
+# ---------------------------------------------------------------------------
+# 2. Work the queue. Each task fetches only the interview it just claimed into
+#    node-local $TMPDIR, transcribes it, writes the outputs and deletes the
+#    copy -- so disk use is bounded by the number of workers, not by the size
+#    of the collection.
+# ---------------------------------------------------------------------------
+python {{TRANSCRIBE_SCRIPT}} work \
+    --queue        "{{QUEUE_PATH}}" \
+    --output       "{{ORAL_OUTPUT_PATH}}" \
+    --scratch      "$TMPDIR/audio" \
+    --parakeet-model   "{{ASR_MODEL}}" \
+    --sortformer-model "{{DIARIZATION_MODEL}}" \
+    --words-device cuda:0 \
+    --turns-device cuda:1 \
+    --deadline-minutes {{DEADLINE_MINUTES}} \
+    --lease {{LEASE_SECONDS}} \
+    {{EXTRA_ARGS}}

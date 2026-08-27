@@ -1,12 +1,11 @@
 """
-Main pipeline orchestrator for WhisperX Transcription Automation.
+Main pipeline orchestrator.
 
-This module coordinates all pipeline steps including:
-- Environment setup
-- File downloads
-- Model preparation
-- SLURM job submission
-- Git upload
+Coordinates: environment setup, audio download, model cache check, filling the
+work queue, SLURM submission, and git upload.
+
+Transcription itself is Parakeet-TDT (words) plus Sortformer (speaker turns),
+run by scripts/transcribe.py inside the SLURM job.
 """
 
 import os
@@ -52,34 +51,25 @@ class TranscriptionPipeline:
         # Step 3: Prepare directories
         self._prepare_directories()
         
-        # Step 4: Download audio files (different sources based on mode)
-        if self.config.from_json:
-            self._download_audio_from_json()
-        else:
-            self._download_audio_files()
-        
-        # Step 5: Download models
-        if self.config.download_models_before_slurm:
-            self._download_models()
-        
-        # Step 6: Download NLTK data
-        self._download_nltk_data()
-        
-        # Step 7: Submit SLURM job
+        # Audio download, model download and queue filling all happen INSIDE
+        # the SLURM job now - compute nodes reach the network through WebProxy,
+        # so nothing needs staging from a login node first.
+
+        # Step 4: Submit SLURM job
         job_id = self._submit_slurm_job()
         
         if job_id:
-            # Step 8: Monitor job
+            # Step 5: Monitor job
             self._monitor_slurm_job(job_id)
             
-            # Step 8.5: Rename output files for from_json mode
+            # Step 5.5: Rename output files for from_json mode
             if self.config.from_json:
                 self._rename_output_files()
             
-            # Step 9: Upload results to GitHub
+            # Step 6: Upload results to GitHub
             self._upload_to_github()
             
-            # Step 10: Update config repo (only for from_json mode)
+            # Step 7: Update config repo (only for from_json mode)
             if self.config.from_json:
                 self._update_config_repo()
         
@@ -136,164 +126,7 @@ class TranscriptionPipeline:
         self.file_manager.clear_directory(self.config.oral_output_path)
         Logger.log_step(5, f"Cleared {self.config.oral_output_path}", "COMPLETED")
     
-    def _download_audio_files(self):
-        """Download audio files using download script."""
-        Logger.log_step(6, "Download audio files from network share", "STARTED")
-        
-        password = self.config.get_smb_password()
-        
-        download_cmd = [
-            self.config.venv_python,
-            self.config.download_script_path,
-            "--server", self.config.smb_server,
-            "--share", self.config.smb_share,
-            "--username", self.config.smb_username,
-            "--password", password,
-            "--base-path", self.config.smb_base_path,
-            "--local-path", self.config.oral_input_path,
-            "--sheet-url", self.config.sheet_url,
-            "--max-folders", str(self.config.max_folders)
-        ]
-        
-        if not self.command_runner.run(download_cmd, 6, "Download audio files"):
-            sys.exit(1)
-    
-    def _download_models(self):
-        """Download WhisperX models for offline use via venv."""
-        Logger.log_step(7, "Download WhisperX models", "STARTED")
-        
-        # Create a script to download models using the venv Python
-        download_script = f"""
-import os
-import sys
-from pathlib import Path
 
-# Set cache directories
-os.environ['HF_HOME'] = '{self.config.hf_cache}'
-os.environ['HF_HUB_OFFLINE'] = '0'
-os.makedirs('{self.config.hf_cache}', exist_ok=True)
-
-# Check if model already exists
-model_name = "{self.config.whisper_model}"
-cache_path = Path('{self.config.hf_cache}')
-
-# WhisperX models are stored in hub/models--Systran--faster-whisper-<model>
-model_cache_pattern = f"**/models--Systran--faster-whisper-*{{model_name}}*"
-existing_models = list(cache_path.glob(model_cache_pattern))
-
-if existing_models:
-    print(f"Model '{{model_name}}' already exists in cache:")
-    print(f"  {{existing_models[0]}}")
-    print(f"  Skipping download.")
-    sys.stdout.flush()
-    model_exists = True
-else:
-    print(f"Model '{{model_name}}' not found in cache, downloading...")
-    sys.stdout.flush()
-    model_exists = False
-
-# Import after environment is set
-import torch
-import whisperx
-import functools
-
-# Apply PyTorch 2.6+ compatibility patch
-try:
-    torch.serialization.add_safe_globals = lambda x: None
-    _original_torch_load = torch.load
-    
-    @functools.wraps(_original_torch_load)
-    def _patched_torch_load(*args, **kwargs):
-        kwargs['weights_only'] = False
-        return _original_torch_load(*args, **kwargs)
-    
-    torch.load = _patched_torch_load
-    print("PyTorch 2.6+ compatibility patch applied")
-    sys.stdout.flush()
-except Exception as e:
-    print(f"WARNING: Failed to apply PyTorch patch: {{e}}")
-    sys.stdout.flush()
-
-# Download models
-device = "cuda" if torch.cuda.is_available() else "cpu"
-compute_type = "int8"  # Safe for both CPU and GPU
-if device == "cpu":
-    print(f"Using CPU mode with compute_type={{compute_type}}")
-else:
-    print(f"Using GPU mode with compute_type={{compute_type}}")
-sys.stdout.flush()
-
-# Download WhisperX model only if not exists
-if not model_exists:
-    print(f"Downloading WhisperX model: {{model_name}}...")
-    sys.stdout.flush()
-    
-    try:
-        model = whisperx.load_model(model_name, device, compute_type=compute_type)
-        print(f"WhisperX model '{{model_name}}' downloaded successfully!")
-        sys.stdout.flush()
-        del model
-    except Exception as e:
-        print(f"Error downloading WhisperX model: {{e}}")
-        sys.stdout.flush()
-        sys.exit(1)
-
-# Download alignment models
-languages = {self.config.alignment_languages}
-print(f"\\nChecking alignment models for languages: {{', '.join(languages)}}...")
-sys.stdout.flush()
-
-for lang in languages:
-    # Check if alignment model exists
-    align_cache_pattern = f"**/models--*alignment*{{lang}}*"
-    existing_align = list(cache_path.glob(align_cache_pattern))
-    
-    if existing_align:
-        print(f"  Alignment model for '{{lang}}' already exists, skipping.")
-        sys.stdout.flush()
-    else:
-        try:
-            print(f"  Downloading alignment model for '{{lang}}'...")
-            sys.stdout.flush()
-            align_model, metadata = whisperx.load_align_model(language_code=lang, device=device)
-            print(f"  Alignment model for '{{lang}}' downloaded!")
-            sys.stdout.flush()
-            del align_model
-        except Exception as e:
-            print(f"  Could not download alignment for '{{lang}}': {{e}}")
-            sys.stdout.flush()
-
-print(f"\\n{{'='*60}}")
-print(f"All models cached at: {self.config.hf_cache}")
-print(f"{{'='*60}}")
-"""
-        
-        # Run via venv Python
-        download_cmd = [self.config.venv_python, "-c", download_script]
-        if not self.command_runner.run(download_cmd, 7, "Download WhisperX models"):
-            Logger.log_warning("Model download failed")
-    
-    def _download_nltk_data(self):
-        """Download NLTK punkt_tab data."""
-        Logger.log_step("7.5", "Download NLTK data", "STARTED")
-        
-        nltk_script = f"""
-import nltk
-import ssl
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
-
-nltk.download('punkt_tab', download_dir='{self.config.nltk_cache}', quiet=False)
-print("NLTK punkt_tab downloaded successfully")
-"""
-        
-        nltk_cmd = [self.config.venv_python, "-c", nltk_script]
-        self.command_runner.run(nltk_cmd, "7.5", "Download NLTK punkt_tab data")
-    
     def _submit_slurm_job(self) -> str:
         """Inject paths and submit SLURM job."""
         Logger.log_step(8, "Update and submit SLURM job", "STARTED")
@@ -305,18 +138,39 @@ print("NLTK punkt_tab downloaded successfully")
         # Inject paths
         slurm_content = slurm_content.replace("{{VENV_ACTIVATE_PATH}}", f"{self.config.venv_path}/bin/activate")
         slurm_content = slurm_content.replace("{{HF_CACHE}}", self.config.hf_cache)
-        slurm_content = slurm_content.replace("{{NLTK_CACHE}}", self.config.nltk_cache)
         slurm_content = slurm_content.replace("{{TRANSCRIBE_SCRIPT}}", self.config.transcribe_script_path)
-        slurm_content = slurm_content.replace("{{WHISPER_MODEL}}", self.config.whisper_model)
-        slurm_content = slurm_content.replace("{{ORAL_INPUT_PATH}}", self.config.oral_input_path)
+        slurm_content = slurm_content.replace("{{QUEUE_PATH}}", self.config.queue_path)
         slurm_content = slurm_content.replace("{{ORAL_OUTPUT_PATH}}", self.config.oral_output_path)
-        
-        # Inject language argument (or omit if None for auto-detection)
+        slurm_content = slurm_content.replace("{{ASR_MODEL}}", self.config.asr_model)
+        slurm_content = slurm_content.replace("{{DIARIZATION_MODEL}}", self.config.diarization_model)
+        slurm_content = slurm_content.replace("{{DEADLINE_MINUTES}}", str(self.config.deadline_minutes))
+        slurm_content = slurm_content.replace("{{LEASE_SECONDS}}", str(self.config.lease_seconds))
+        slurm_content = slurm_content.replace(
+            "{{WEB_PROXY}}",
+            "ml WebProxy" if self.config.use_web_proxy else "# WebProxy disabled in config",
+        )
+        slurm_content = slurm_content.replace("{{SMB_USERNAME}}", self.config.smb_username)
+        slurm_content = slurm_content.replace(
+            "{{SOURCE}}", "json" if self.config.from_json else "smb"
+        )
+        fill_args = ""
+        if self.config.from_json:
+            fill_args = f'--config-json "{self.config.local_config_json}"'
+        if self.config.max_files:
+            fill_args += f" --max-files {self.config.max_files}"
+        slurm_content = slurm_content.replace("{{FILL_ARGS}}", fill_args.strip())
+
+        # Optional worker flags, assembled from config.
+        extra = []
         if self.config.language:
-            language_arg = f'--language "{self.config.language}" \\\n    '
-        else:
-            language_arg = ''
-        slurm_content = slurm_content.replace("{{LANGUAGE_ARG}}", language_arg)
+            extra.append('--language "%s"' % self.config.language)
+        if not self.config.diarize:
+            extra.append("--no-diarize")
+        if self.config.denoise:
+            extra.append("--denoise")
+        if not self.config.parallel_models:
+            extra.append("--sequential-models")
+        slurm_content = slurm_content.replace("{{EXTRA_ARGS}}", " ".join(extra))
         
         # Write updated SLURM file
         updated_slurm = os.path.join(self.config.working_dir, "run_job.slurm")
@@ -374,55 +228,7 @@ print("NLTK punkt_tab downloaded successfully")
         else:
             Logger.log_error("GitHub upload failed")
     
-    def _download_audio_from_json(self):
-        """Download audio files from JSON config (from_json mode)."""
-        Logger.log_step(6, "Download audio files from JSON config", "STARTED")
-        
-        token = self.config.get_git_token()
-        
-        # Step 1: Setup config repository (edge-grant-reviewer)
-        Logger.log_info("Setting up config repository...")
-        self._config_repo_manager = ConfigRepoManager(
-            repo_folder=self.config.config_repo_path,
-            owner=self.config.git_owner,
-            repo_name=self.config.config_repo_name,
-            username=self.config.git_username,
-            token=token,
-            config_json_path=self.config.config_json_path,
-            output_config_path=self.config.output_config_path
-        )
-        
-        if not self._config_repo_manager.setup_repository():
-            Logger.log_error("Failed to setup config repository")
-            sys.exit(1)
-        
-        # Step 2: Read config-to-process.json
-        entries = self._config_repo_manager.read_config_to_process()
-        
-        if not entries:
-            Logger.log_warning("No entries found in config-to-process.json")
-            return
-        
-        Logger.log_info(f"Found {len(entries)} entries to process")
-        
-        # Step 3: Download audio files
-        # Pass module load command for HPC FFmpeg loading and venv path for yt-dlp
-        downloader = JsonAudioDownloader(
-            input_dir=self.config.oral_input_path,
-            module_load_command=self.config.module_load_command,
-            venv_bin_path=self.config.venv_bin_path
-        )
-        self._processed_entries = downloader.process_config_entries(
-            entries,
-            max_files=self.config.max_json_files
-        )
-        
-        if not self._processed_entries:
-            Logger.log_warning("No audio files were successfully downloaded")
-            return
-        
-        Logger.log_step(6, f"Downloaded {len(self._processed_entries)} audio files", "COMPLETED")
-    
+
     def _update_config_repo(self):
         """Update config.json with new entries (from_json mode only)."""
         Logger.log_step(11, "Update config.json in reviewer repo", "STARTED")

@@ -1,6 +1,8 @@
 """
-Configuration management for WhisperX Transcription Automation Pipeline.
-All configurable parameters are defined here as a centralized Config class.
+Configuration for the transcription pipeline.
+
+ASR is Parakeet-TDT (words, timings, confidence) plus Sortformer (speaker
+turns). Both are NeMo models sharing one environment.
 """
 
 import os
@@ -22,7 +24,7 @@ class PipelineConfig:
     venv_name: str = "venv"
     
     # --- Environment Modules ---
-    module_load_command: str = "ml GCCcore/10.3.0 Python FFmpeg CUDA"
+    module_load_command: str = "ml GCCcore/12.3.0 Python FFmpeg CUDA"  # NeMo needs Python >= 3.10
     
     # --- Data Directories ---
     data_folder: str = "data"
@@ -46,6 +48,9 @@ class PipelineConfig:
     git_username: str = "JvkChaitanya"
     git_token: str = ""  # Set via environment variable GIT_TOKEN
     
+    #: Cap how many interviews a run queues. 0 = the whole collection.
+    max_files: int = 0
+
     # --- From JSON Mode Settings ---
     from_json: bool = False  # Flag to enable JSON-based processing
     config_repo_name: str = "edge-grant-reviewer"  # Reviewer repo name
@@ -53,21 +58,50 @@ class PipelineConfig:
     output_config_path: str = "public/config.json"  # Output config to update in reviewer repo
     max_json_files: int = 20  # Maximum number of files to process from JSON (0 = no limit)
     
+    # --- Network on compute nodes ---
+    #: Grace compute nodes have no direct internet, but HPRC runs an HTTP proxy
+    #: reachable from them. Loading the WebProxy module sets http_proxy and
+    #: https_proxy, which is what lets the job download its own audio and its
+    #: own model weights instead of needing anything staged in advance.
+    #: Turning this off breaks both, unless the audio is already local.
+    use_web_proxy: bool = True
+
     # --- Cache Directories ---
     cache_dir: str = "/scratch/group/tamu_libr_dc/cache"
     
     # --- Transcription Settings ---
-    whisper_model: str = "large-v3"
-    batch_size: int = 16
-    compute_type: str = "float16"
-    language: Optional[str] = None  # None for auto-detect
-    alignment_languages: List[str] = field(default_factory=lambda: ["en", "es", "fr", "de"])
+    #: Words, timings and per-word confidence. Emits word timestamps natively,
+    #: so there is no separate forced-alignment stage.
+    asr_model: str = "nvidia/parakeet-tdt-0.6b-v3"
+    #: Speaker turns. Shares Parakeet's FastConformer frontend and its 16 kHz
+    #: input, so both sides of the fusion sit on one measured time base.
+    diarization_model: str = "nvidia/diar_streaming_sortformer_4spk-v2.1"
+    #: Attach speaker labels. Off = words and timings only.
+    diarize: bool = True
+    #: Pin one model per GPU so they genuinely overlap. Same device for both
+    #: means they contend instead - set parallel_models False in that case.
+    words_device: str = "cuda:0"
+    turns_device: str = "cuda:1"
+    parallel_models: bool = True
+
+    language: Optional[str] = "en"  # tag written to the JSON; models self-detect
     max_line_width: int = 42
     max_line_count: int = 2
-    highlight_words: bool = False
+
+    #: The old noisereduce pass, tuned for Whisper. Off by default: both models
+    #: are trained on noise-augmented audio and normalise their own input, and
+    #: spectral gating can add artefacts that hurt an end-to-end model.
+    denoise: bool = False
+
+    # --- Queue Settings ---
+    #: Seconds a worker holds a claim before it can be reaped by another job.
+    #: Must exceed the slowest single interview.
+    lease_seconds: int = 5400
+    max_attempts: int = 3
+    #: Stop claiming this many minutes into the job, leaving room to finish the
+    #: file in hand. Keep it below the Slurm wall clock.
+    deadline_minutes: int = 2820
     
-    # --- Model Download Settings ---
-    download_models_before_slurm: bool = True
     
     # --- Derived Properties ---
     @property
@@ -96,6 +130,11 @@ class PipelineConfig:
         return os.path.join(os.path.dirname(self.working_dir), self.git_repo_name)
     
     @property
+    def local_config_json(self) -> str:
+        """Where the reviewer repo's config JSON lands once cloned locally."""
+        return os.path.join(self.config_repo_path, self.config_json_path)
+
+    @property
     def config_repo_path(self) -> str:
         """Path to config repository (edge-grant-reviewer, one level above working directory)."""
         return os.path.join(os.path.dirname(self.working_dir), self.config_repo_name)
@@ -121,72 +160,62 @@ class PipelineConfig:
         return os.path.join(self.cache_dir, "huggingface")
     
     @property
-    def nltk_cache(self) -> str:
-        """NLTK data cache path."""
-        return os.path.join(self.cache_dir, "nltk_data")
-    
+    def queue_path(self) -> str:
+        """Shared work queue. Must be on scratch, not a home directory."""
+        return os.path.join(self.data_dir, "queue")
+
     @property
-    def model_dir(self) -> Optional[str]:
-        """Optional specific model directory path."""
-        return None  # Can be overridden if needed
-    
+    def prepared_path(self) -> str:
+        """Scratch for decoded audio, removed as soon as the GPU is done."""
+        return os.path.join(self.data_dir, "prepared")
+
     # --- Script Paths ---
-    @property
-    def download_script_path(self) -> str:
-        """Path to download automation script."""
-        return os.path.join(self.working_dir, "legacy", "download_automation_3.py")
-    
-    @property
-    def model_download_script_path(self) -> str:
-        """Path to model download script (legacy - pipeline uses inline venv script)."""
-        return os.path.join(self.working_dir, "legacy", "d_whisperx.py")
-    
+
     @property
     def transcribe_script_path(self) -> str:
-        """Path to transcription script."""
+        """Path to the transcription worker."""
         return os.path.join(self.working_dir, "scripts", "transcribe.py")
-    
-    @property
-    def git_upload_script_path(self) -> str:
-        """Path to git upload script (not used - GitUploader class used instead)."""
-        return os.path.join(self.working_dir, "legacy", "git_upload.py")
-    
+
     @property
     def slurm_job_path(self) -> str:
-        """Path to SLURM job template."""
+        """Path to the SLURM job template."""
         return os.path.join(self.working_dir, "config", "run.slurm")
-    
+
     @property
     def requirements_path(self) -> str:
-        """Path to requirements.txt file."""
+        """Path to requirements.txt."""
         return os.path.join(self.working_dir, "requirements.txt")
-    
+
+    # --- Credentials ---
+
     def get_smb_password(self) -> str:
         """Get SMB password from config, environment, or prompt."""
         import getpass
-        
+
         if self.smb_password:
             return self.smb_password
-        
-        env_password = os.environ.get('SMB_PASSWORD')
+
+        env_password = os.environ.get("SMB_PASSWORD")
         if env_password:
             return env_password
-        
+
         try:
             return getpass.getpass(f"Password for {self.smb_username}: ")
         except Exception as e:
             raise ValueError(f"Error getting password: {e}")
-    
+
     def get_git_token(self) -> str:
         """Get GitHub token from config or environment."""
         if self.git_token:
             return self.git_token
-        
-        env_token = os.environ.get('GIT_TOKEN')
+
+        env_token = os.environ.get("GIT_TOKEN")
         if env_token:
             return env_token
-        
-        raise ValueError("GitHub token not set. Set GIT_TOKEN environment variable or update config.")
+
+        raise ValueError(
+            "GitHub token not set. Set GIT_TOKEN environment variable or update config."
+        )
 
 
 # Singleton instance

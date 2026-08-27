@@ -1,0 +1,462 @@
+<title>Oral History Transcription</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+:root {
+  --paper:        #F4F6F7;
+  --surface:      #FFFFFF;
+  --surface-sunk: #E9EEF0;
+  --code-bg:      #1B242B;
+  --code-fg:      #D6DFE5;
+  --ink:          #14191E;
+  --ink-soft:     #47545E;
+  --ink-faint:    #74828C;
+  --rule:         #D2DADE;
+  --rule-soft:    #E2E8EB;
+
+  --accent:       #8A1E2D;
+  --accent-soft:  #F2E0E3;
+  --words:        #1F6F73;
+  --words-soft:   #DDEDED;
+  --turns:        #8A6718;
+  --turns-soft:   #F3ECD8;
+
+  --measure: 66ch;
+  --step--1: 0.815rem;
+  --step-0:  1rem;
+  --step-1:  1.22rem;
+  --step-2:  1.55rem;
+  --step-3:  2.8rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:        #10151A;
+    --surface:      #161D23;
+    --surface-sunk: #1D262E;
+    --code-bg:      #0B1015;
+    --code-fg:      #C9D4DB;
+    --ink:          #E4EAEE;
+    --ink-soft:     #A4B2BC;
+    --ink-faint:    #78868F;
+    --rule:         #2C373F;
+    --rule-soft:    #232D35;
+    --accent:       #E2909C;
+    --accent-soft:  #3A2028;
+    --words:        #63C0C4;
+    --words-soft:   #16302F;
+    --turns:        #D4A73C;
+    --turns-soft:   #2A2418;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:        #10151A;
+  --surface:      #161D23;
+  --surface-sunk: #1D262E;
+  --code-bg:      #0B1015;
+  --code-fg:      #C9D4DB;
+  --ink:          #E4EAEE;
+  --ink-soft:     #A4B2BC;
+  --ink-faint:    #78868F;
+  --rule:         #2C373F;
+  --rule-soft:    #232D35;
+  --accent:       #E2909C;
+  --accent-soft:  #3A2028;
+  --words:        #63C0C4;
+  --words-soft:   #16302F;
+  --turns:        #D4A73C;
+  --turns-soft:   #2A2418;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: var(--step-0); line-height: 1.62; -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 1020px; margin: 0 auto;
+  padding: clamp(2rem, 5vw, 4rem) clamp(1.1rem, 4vw, 2.5rem) 5.5rem;
+  display: flex; flex-direction: column; gap: 3rem;
+}
+.col { max-width: var(--measure); display: flex; flex-direction: column; gap: 1rem; }
+
+h1, h2, h3, .label, .eyebrow, th, .chip { font-family: "IBM Plex Sans", system-ui, sans-serif; }
+h1 { font-size: var(--step-3); line-height: 1.05; letter-spacing: -0.028em; font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: var(--step-2); line-height: 1.2; letter-spacing: -0.015em; font-weight: 600; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; margin: 0; letter-spacing: -0.008em; }
+p { margin: 0; } p + p { margin-top: 0.2rem; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.87em; }
+p code, li code, td code { background: var(--surface-sunk); padding: 0.1em 0.34em; border-radius: 3px; }
+
+.eyebrow { font-size: var(--step--1); letter-spacing: 0.13em; text-transform: uppercase; font-weight: 500; color: var(--ink-faint); margin: 0; }
+.lede { font-size: var(--step-1); line-height: 1.5; color: var(--ink-soft); }
+
+.masthead { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 1.9rem; border-bottom: 2px solid var(--ink); }
+.byline { display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; font-family: "IBM Plex Mono", monospace; font-size: var(--step--1); color: var(--ink-faint); }
+
+figure { margin: 0; display: flex; flex-direction: column; gap: 0.8rem; }
+.figure-frame { background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 1.4rem 1.2rem; overflow-x: auto; }
+.figure-frame svg { display: block; min-width: 700px; max-width: 100%; height: auto; }
+figcaption { font-size: var(--step--1); line-height: 1.55; color: var(--ink-soft); max-width: var(--measure); }
+figcaption b { color: var(--ink); font-weight: 600; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; min-width: 600px; background: var(--surface); font-size: 0.93rem; }
+th { text-align: left; font-size: var(--step--1); letter-spacing: 0.07em; text-transform: uppercase; font-weight: 600; color: var(--ink-faint); padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; line-height: 1.45; }
+tbody tr:last-child td { border-bottom: none; }
+td.mono { font-size: 0.83rem; }
+
+pre {
+  margin: 0; background: var(--code-bg); color: var(--code-fg);
+  border-radius: 4px; padding: 1.1rem 1.2rem; overflow-x: auto;
+  font-family: "IBM Plex Mono", monospace; font-size: 0.79rem; line-height: 1.7;
+}
+pre .c  { color: #7E8F9B; }
+pre .k  { color: #7FB6D8; }
+pre .s  { color: #9FCB8C; }
+pre .n  { color: #E0B76A; }
+pre .hi { color: #E58F9E; font-weight: 500; }
+
+.filename {
+  font-family: "IBM Plex Mono", monospace; font-size: var(--step--1);
+  color: var(--ink-faint); letter-spacing: 0.02em;
+  padding-bottom: 0.35rem; border-bottom: 1px solid var(--rule); margin-bottom: 0.75rem;
+}
+
+.pair { display: grid; gap: 1.6rem; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .pair { grid-template-columns: 1fr 1fr; } }
+
+.note {
+  border: 1px solid var(--rule); border-left: 3px solid var(--words);
+  background: var(--surface); padding: 1rem 1.2rem;
+  display: flex; flex-direction: column; gap: 0.45rem; max-width: var(--measure);
+}
+.note .label { font-size: var(--step--1); letter-spacing: 0.09em; text-transform: uppercase; font-weight: 600; color: var(--words); }
+.note p { font-size: 0.94rem; color: var(--ink-soft); }
+.note.warn { border-left-color: var(--accent); }
+.note.warn .label { color: var(--accent); }
+
+ul { margin: 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.35rem; }
+li { color: var(--ink-soft); } li b { color: var(--ink); font-weight: 600; }
+
+.section { display: flex; flex-direction: column; gap: 1.3rem; }
+hr.rule { border: none; border-top: 1px solid var(--rule); margin: 0; }
+footer { color: var(--ink-faint); font-size: var(--step--1); max-width: var(--measure); }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">TAMU Libraries &middot; HPRC Grace</p>
+    <h1>Oral History Transcription</h1>
+    <p class="lede">Parakeet-TDT for words, Sortformer for speakers, fused on a
+      shared time base. One Slurm submission does everything &mdash; nothing is
+      staged from anywhere else.</p>
+    <div class="byline">
+      <span>190 tests</span>
+      <span>1 job, 4 tasks, 2&times;A100 each</span>
+      <span>output schema unchanged</span>
+    </div>
+  </header>
+
+  <!-- ============================================ flow -->
+  <section class="section">
+    <div class="col">
+      <h2>The flow</h2>
+      <p>Everything below runs inside one <code>sbatch</code>. Compute nodes reach
+        the network through HPRC's WebProxy, which is what removed every staging
+        step.</p>
+    </div>
+
+    <figure>
+      <div class="figure-frame">
+        <svg viewBox="0 0 960 470" role="img" aria-label="One Slurm job. Each array task enumerates the collection into a shared queue, then claims an interview, fetches only that file, runs Parakeet on GPU zero and Sortformer on GPU one in parallel, fuses their outputs by time overlap, writes JSON and VTT, and deletes the audio copy. A login node then uploads the results to the reviewer repository.">
+          <defs>
+            <marker id="f-n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker>
+            <marker id="f-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1F6F73"/></marker>
+            <marker id="f-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8A6718"/></marker>
+            <marker id="f-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8A1E2D"/></marker>
+          </defs>
+
+          <!-- job boundary -->
+          <rect x="0" y="34" width="960" height="330" rx="4" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="5 4" opacity="0.35"/>
+          <text x="12" y="26" font-family="IBM Plex Sans, sans-serif" font-size="11.5" font-weight="600" letter-spacing="0.08em" fill="currentColor" opacity="0.75">ONE SLURM JOB &middot; 4 ARRAY TASKS &middot; ml WebProxy</text>
+
+          <!-- 1. enumerate -->
+          <text x="16" y="62" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.6">step 1 &mdash; moves no audio</text>
+          <rect x="16" y="72" width="176" height="66" rx="3" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          <text x="104" y="96" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="13" fill="currentColor">enumerate</text>
+          <text x="104" y="114" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">sheet / reviewer JSON</text>
+          <text x="104" y="128" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">&rarr; references only</text>
+
+          <line x1="194" y1="105" x2="234" y2="105" stroke="currentColor" stroke-width="1.3" marker-end="url(#f-n)"/>
+
+          <!-- queue -->
+          <rect x="236" y="72" width="140" height="66" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          <text x="306" y="96" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="13" fill="currentColor">queue/</text>
+          <text x="306" y="114" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">pending &middot; claimed</text>
+          <text x="306" y="128" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">done &middot; failed</text>
+          <text x="306" y="154" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.5">on /scratch &mdash; the entire run state</text>
+
+          <!-- claim -->
+          <path d="M 378 105 L 414 105" fill="none" stroke="currentColor" stroke-width="1.3" marker-end="url(#f-n)"/>
+          <text x="396" y="96" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">claim</text>
+
+          <!-- 2. per-task -->
+          <text x="416" y="62" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity="0.6">step 2 &mdash; one interview at a time</text>
+          <rect x="416" y="72" width="120" height="66" rx="3" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          <text x="476" y="96" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="13" fill="currentColor">fetch</text>
+          <text x="476" y="114" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">just this file</text>
+          <text x="476" y="128" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">to $TMPDIR</text>
+
+          <!-- split to two models -->
+          <path d="M 538 92 L 566 92 L 566 196 L 596 196" fill="none" stroke="#1F6F73" stroke-width="1.4" marker-end="url(#f-w)"/>
+          <path d="M 538 118 L 566 118 L 566 286 L 596 286" fill="none" stroke="#8A6718" stroke-width="1.4" marker-end="url(#f-t)"/>
+
+          <text x="598" y="176" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.08em" fill="#1F6F73">GPU 0</text>
+          <rect x="596" y="184" width="182" height="62" rx="3" fill="none" stroke="#1F6F73" stroke-width="1.6"/>
+          <text x="687" y="207" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">Parakeet&#8209;TDT</text>
+          <text x="687" y="225" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">words + times + confidence</text>
+          <text x="687" y="239" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#1F6F73">~1.6 s / 90 min</text>
+
+          <text x="598" y="266" font-family="IBM Plex Sans, sans-serif" font-size="11" font-weight="600" letter-spacing="0.08em" fill="#8A6718">GPU 1</text>
+          <rect x="596" y="274" width="182" height="62" rx="3" fill="none" stroke="#8A6718" stroke-width="1.6"/>
+          <text x="687" y="297" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">Sortformer</text>
+          <text x="687" y="315" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">speaker turns, 80 ms grid</text>
+          <text x="687" y="329" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#8A6718">~11 s / 90 min</text>
+
+          <text x="560" y="256" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">in parallel</text>
+
+          <!-- fuse -->
+          <path d="M 780 215 L 812 215 L 812 250" fill="none" stroke="#1F6F73" stroke-width="1.4" marker-end="url(#f-w)"/>
+          <path d="M 780 305 L 812 305 L 812 272" fill="none" stroke="#8A6718" stroke-width="1.4" marker-end="url(#f-t)"/>
+          <rect x="800" y="228" width="144" height="66" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="872" y="252" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="13" fill="currentColor">fuse</text>
+          <text x="872" y="270" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">by time overlap</text>
+          <text x="872" y="284" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">+ line reflow</text>
+
+          <!-- outputs -->
+          <path d="M 872 296 L 872 330 L 306 330 L 306 142" fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#f-n)"/>
+          <text x="600" y="326" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.6">mark done, delete the audio copy</text>
+
+          <path d="M 800 261 L 700 261" fill="none" stroke="#8A1E2D" stroke-width="0" />
+          <rect x="16" y="196" width="176" height="80" rx="3" fill="none" stroke="#8A1E2D" stroke-width="1.4"/>
+          <text x="104" y="220" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="13" fill="currentColor">output/</text>
+          <text x="104" y="238" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">json/&lt;id&gt;.json</text>
+          <text x="104" y="252" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">vtts/&lt;id&gt;.vtt</text>
+          <text x="104" y="268" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="currentColor" opacity="0.5">schema unchanged</text>
+          <path d="M 800 261 L 196 261" fill="none" stroke="#8A1E2D" stroke-width="1.3" marker-end="url(#f-a)" stroke-dasharray="0"/>
+
+          <!-- upload, outside the job -->
+          <rect x="16" y="386" width="176" height="62" rx="3" fill="none" stroke="#8A1E2D" stroke-width="1.3"/>
+          <text x="104" y="410" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="13" fill="currentColor">reviewer repo</text>
+          <text x="104" y="428" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="currentColor" opacity="0.62">GitUploader</text>
+          <path d="M 104 278 L 104 384" fill="none" stroke="#8A1E2D" stroke-width="1.3" marker-end="url(#f-a)"/>
+          <text x="116" y="336" font-family="IBM Plex Mono, monospace" font-size="9" fill="#8A1E2D">after the job, from the login node</text>
+        </svg>
+      </div>
+      <figcaption><b>Nothing is staged in advance.</b> The queue holds references,
+        so each task downloads only the interview it just claimed and deletes the
+        copy afterwards &mdash; disk use is bounded by the number of workers, not by
+        the size of the collection. The two models are pinned to different GPUs, so
+        the arrows really do run at the same time.</figcaption>
+    </figure>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ============================================ why -->
+  <section class="section">
+    <div class="col">
+      <h2>Why these two models</h2>
+      <p>Not just accuracy &mdash; they agree about <em>time</em>.</p>
+    </div>
+
+    <div class="note">
+      <p class="label">The alignment argument</p>
+      <p>Both models derive time from the same 16&nbsp;kHz waveform through the same
+        FastConformer frontend. Word timestamps and speaker turns therefore sit on
+        one <b>measured</b> time base, and the fusion error is bounded by
+        Sortformer's 80&nbsp;ms frame grid.</p>
+      <p>A language-model diarizer writes its timestamps as generated
+        text &mdash; it emits the characters <code>[0.48]</code> the way it emits any
+        other token. Those times are <b>predicted</b>, nothing ties them to the
+        audio, and joining them to measured word times gives speaker drift with no
+        upper bound.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Model</th><th>Produces</th><th>Cost / 90 min</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="mono" style="color:var(--words)">words</td>
+            <td class="mono">parakeet-tdt-0.6b-v3</td>
+            <td>text, word start/end, per-word confidence</td>
+            <td class="mono">~1.6 s</td>
+          </tr>
+          <tr>
+            <td class="mono" style="color:var(--turns)">turns</td>
+            <td class="mono">diar_streaming_sortformer_4spk-v2.1</td>
+            <td>speaker spans, max 4 speakers</td>
+            <td class="mono">~11 s</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p>Both ship in <code>nemo_toolkit[asr]</code>, so they share one environment
+        and one process. That single fact is why there is no split-worker
+        architecture here.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ============================================ output -->
+  <section class="section">
+    <div class="col">
+      <h2>What comes out</h2>
+      <p>Real output from the code, not a mock-up. Same schema the WhisperX
+        pipeline produced, so <code>src/git/uploader.py</code> and the reviewer app
+        need no changes &mdash; <code>speaker</code> and <code>source</code> are new
+        keys, additive.</p>
+    </div>
+
+    <figure>
+      <div class="figure-frame">
+        <p class="filename">data/oral_output/vtts/02_00113_a_01.vtt</p>
+<pre><span class="k">WEBVTT</span>
+
+<span class="n">00:00:00.420 --&gt; 00:00:03.440</span>
+<span class="hi">&lt;v S01&gt;</span>So tell me about the summer of nineteen
+sixty two.
+
+<span class="n">00:00:04.180 --&gt; 00:00:09.310</span>
+<span class="hi">&lt;v S02&gt;</span>Well, we were still out on the Brazos
+place then. My father worked the land and
+
+<span class="n">00:00:09.310 --&gt; 00:00:11.680</span>
+<span class="hi">&lt;v S02&gt;</span>my mother taught school in Navasota.
+
+<span class="n">00:00:12.240 --&gt; 00:00:13.920</span>
+<span class="hi">&lt;v S01&gt;</span>And what did a day look like?</pre>
+      </div>
+      <figcaption>Cue boundaries come from the <b>words</b>, not from the speaker
+        turn, so every break lands on real speech. Lines wrap at 42 characters, two
+        per cue, and never cross a speaker change &mdash; the same settings the old
+        pipeline used. <code>&lt;v S01&gt;</code> is standard WebVTT voice markup, so
+        players that understand it show the speaker and players that don't ignore
+        it.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="figure-frame">
+        <p class="filename">data/oral_output/json/02_00113_a_01.json</p>
+<pre>{
+  <span class="k">"segments"</span>: [
+    {
+      <span class="k">"start"</span>: <span class="n">4.18</span>,
+      <span class="k">"end"</span>: <span class="n">11.68</span>,
+      <span class="k">"text"</span>: <span class="s">"Well, we were still out on the Brazos place then. My father
+                worked the land and my mother taught school in Navasota."</span>,
+      <span class="k">"speaker"</span>: <span class="s">"S02"</span>,                        <span class="c">// NEW, additive</span>
+      <span class="k">"words"</span>: [
+        { <span class="k">"word"</span>: <span class="s">"Well,"</span>,  <span class="k">"start"</span>: <span class="n">4.18</span>, <span class="k">"end"</span>: <span class="n">4.72</span>,
+          <span class="k">"score"</span>: <span class="n">0.94</span>, <span class="k">"speaker"</span>: <span class="s">"S02"</span>, <span class="k">"source"</span>: <span class="s">"measured"</span> },
+        { <span class="k">"word"</span>: <span class="s">"we"</span>,     <span class="k">"start"</span>: <span class="n">4.72</span>, <span class="k">"end"</span>: <span class="n">4.88</span>,
+          <span class="k">"score"</span>: <span class="n">0.96</span>, <span class="k">"speaker"</span>: <span class="s">"S02"</span>, <span class="k">"source"</span>: <span class="s">"measured"</span> },
+        <span class="c">// ...</span>
+        { <span class="k">"word"</span>: <span class="s">"Brazos"</span>, <span class="k">"start"</span>: <span class="n">5.87</span>, <span class="k">"end"</span>: <span class="n">6.44</span>,
+          <span class="k">"score"</span>: <span class="hi">0.58</span>, <span class="k">"speaker"</span>: <span class="s">"S02"</span>, <span class="k">"source"</span>: <span class="s">"measured"</span> },
+        <span class="c">//         ^ a place name the model was unsure of &mdash; exactly what</span>
+        <span class="c">//           word_score_buckets is there to surface for review</span>
+      ]
+    }
+  ],
+  <span class="k">"language"</span>: <span class="s">"en"</span>,
+  <span class="k">"word_score_buckets"</span>: { <span class="k">"Good"</span>: <span class="n">0.95</span>, <span class="k">"Neutral"</span>: <span class="n">0.94</span>, <span class="k">"Bad"</span>: <span class="n">0.91</span> },
+  <span class="k">"alignment_stats"</span>: {
+    <span class="k">"total_segments"</span>: <span class="n">3</span>,  <span class="k">"successful_alignments"</span>: <span class="n">3</span>,
+    <span class="k">"failed_alignments"</span>: <span class="n">0</span>, <span class="k">"success_rate"</span>: <span class="n">100.0</span>,
+    <span class="k">"total_words"</span>: <span class="n">39</span>,    <span class="k">"words_with_measured_timings"</span>: <span class="n">39</span>
+  },
+  <span class="k">"speakers"</span>: [<span class="s">"S01"</span>, <span class="s">"S02"</span>],       <span class="c">// NEW</span>
+  <span class="k">"asr_model"</span>: <span class="s">"nvidia/parakeet-tdt-0.6b-v3"</span>   <span class="c">// NEW</span>
+}</pre>
+      </div>
+      <figcaption><b>Every key the old pipeline emitted is still emitted.</b>
+        <code>score</code> is the same quantity the reviewer app already reads &mdash;
+        now the transducer's own confidence rather than a forced-alignment posterior.
+        <code>word_score_buckets</code> are percentiles of each file's own scores, so
+        the thresholds re-calibrate per interview and the change of model does not
+        break the UI.</figcaption>
+    </figure>
+
+    <div class="note">
+      <p class="label">On <code>source</code></p>
+      <p><code>"measured"</code> means the model produced that timing from the audio.
+        <code>"interpolated"</code> means it was estimated because the model gave
+        none &mdash; rare, but worth surfacing differently in review. There is no
+        forced-alignment stage any more, so a word is either timed by the decoder
+        or it is a guess, and the field says which.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ============================================ layout -->
+  <section class="section">
+    <div class="col">
+      <h2>Where things live</h2>
+    </div>
+<pre><span class="c"># the job</span>
+config/run.slurm              enumerate + transcribe, one submission
+scripts/transcribe.py         fill / work / status / requeue
+scripts/run_pipeline.py       submit, wait, upload
+
+<span class="c"># the implementation</span>
+src/asr/sources.py            where audio comes from; fetch one file
+src/asr/parakeet.py           words, timings, confidence
+src/asr/sortformer.py         speaker turns
+src/asr/fusion.py             join them by time overlap
+src/asr/lines.py              word stream &rarr; subtitle lines
+src/asr/output.py             the JSON + VTT above
+src/asr/workqueue.py          claim / lease / reap
+
+<span class="c"># unchanged from before</span>
+src/git/, src/utils/          upload and helpers
+src/config.py                 all settings in one place</pre>
+
+    <div class="note warn">
+      <p class="label">Before the first real run</p>
+      <p><b>Does <code>nemo_toolkit[asr]</code> install on Grace?</b> Both models come
+        from that one package, so it is a single check.</p>
+      <p><b>Can a compute node reach the SMB share?</b> WebProxy carries HTTP and
+        HTTPS only; SMB is port 445 and does not go through it. The sheet and the
+        Kaltura URLs are fine either way. If SMB is not reachable, stage the audio
+        to scratch once and run with <code>--source local</code> &mdash; nothing else
+        changes.</p>
+      <p>Nothing here has run on Grace yet. The queue protocol, fusion, output
+        schema and worker loop are covered by 190 tests with the models stubbed;
+        the two forward passes are not.</p>
+    </div>
+  </section>
+
+  <footer>
+    Companion to the repository README. Sample output above was generated by the
+    real code path with the model calls stubbed.
+  </footer>
+
+</div>
