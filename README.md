@@ -127,7 +127,7 @@ pip install pytest
 pytest -q
 ```
 
-233 tests. They need no GPU, no model weights and no internet — the models are
+239 tests. They need no GPU, no model weights and no internet — the models are
 stubbed, so they run on a login node or your laptop.
 
 ---

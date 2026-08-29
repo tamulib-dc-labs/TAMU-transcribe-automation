@@ -100,6 +100,11 @@ Nothing was found to do. Possible reasons:
   tracking sheet.
 - **Wrong source.** `--source local` needs `--input` pointing at a folder that
   actually contains audio.
+- **`config_json_path` and `output_config_path` are the same file.** The output
+  file marks work as done, so pointing both at it means every entry is skipped.
+  You will see a `WARNING` about this at the start of the run. Use
+  `public/config-to-process.json` for the input and `public/config.json` for the
+  output.
 
 ---
 

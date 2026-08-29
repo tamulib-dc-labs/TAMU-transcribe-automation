@@ -155,7 +155,23 @@ class ConfigRepoManager:
             List of config entries that have NOT yet been processed
         """
         config_path = os.path.join(self.repo_folder, self.config_json_path)
-        
+
+        if self.config_json_path == self.output_config_path:
+            # The output file is what marks entries as already done. If it is
+            # also the input, every entry in it is treated as finished, so the
+            # run finds nothing to do - and reports it as "all done" rather
+            # than as a misconfiguration.
+            print(
+                "WARNING: config_json_path and output_config_path are both "
+                f"{self.config_json_path!r}.\n"
+                "         The output file marks work as done, so every entry in "
+                "it is skipped --\n"
+                "         which means this run will find nothing to transcribe. "
+                "Use two files:\n"
+                "         public/config-to-process.json (input) and "
+                "public/config.json (output)."
+            )
+
         if not os.path.exists(config_path):
             print(f"Config file not found: {config_path}")
             return []
@@ -165,12 +181,13 @@ class ConfigRepoManager:
                 config_data = json.load(f)
             
             total_entries = len(config_data)
-            print(f"Read {total_entries} entries from config-to-process.json")
+            print(f"Read {total_entries} entries from {self.config_json_path}")
             
             # Filter out already processed entries
             processed_names = self.get_processed_names()
             if processed_names:
-                print(f"Found {len(processed_names)} already processed entries in config.json")
+                print(f"Found {len(processed_names)} already-processed entries in "
+                      f"{self.output_config_path}")
                 
                 new_entries = []
                 skipped = 0

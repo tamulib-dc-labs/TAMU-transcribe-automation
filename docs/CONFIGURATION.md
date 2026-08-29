@@ -137,8 +137,13 @@ reviewer repo's `config-to-process.json` instead of the tracking spreadsheet.
 |---|---|---|
 | `from_json` | `False` | Take the work list from the reviewer repo |
 | `config_repo_name` | `"edge-grant-reviewer"` | The repo holding the list |
-| `config_json_path` | `"public/config-to-process.json"` | The list, inside that repo |
-| `output_config_path` | `"public/config.json"` | Updated with transcript links after a run |
+| `config_json_path` | `"public/config-to-process.json"` | The list of work, inside that repo |
+| `output_config_path` | `"public/config.json"` | Written after a run, with the transcript links |
+
+**These two must be different files.** The output file is what marks an
+interview as done, so if it is also the input, every entry counts as finished
+and the run finds nothing to transcribe. The pipeline warns if you set them the
+same.
 
 The repo is cloned on the login node — it is private, so the job cannot read it
 directly. Entries already transcribed are dropped, and the rest are written to
