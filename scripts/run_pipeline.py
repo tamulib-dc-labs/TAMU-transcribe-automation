@@ -1,10 +1,15 @@
-"""Run the whole pipeline: submit the Slurm job, wait, upload the transcripts.
+"""Submit the pipeline to Slurm.
 
     python scripts/run_pipeline.py               # from the tracking spreadsheet
     python scripts/run_pipeline.py --from-json   # from the reviewer app's list
 
-Run this from a login node. Nothing is downloaded here - the Slurm job lists
-the collection, fetches each interview as it works on it, and transcribes it.
+Run this from a login node. It submits three jobs and exits - nothing is
+downloaded, read or transcribed here:
+
+    prepare  ->  transcribe (GPU array)  ->  publish
+
+Each job starts only if the one before it succeeded, so the ordering costs
+nothing on the login node. Watch them with `squeue -u $USER`.
 
 Safe to re-run. Interviews that already have a transcript are skipped.
 """
@@ -48,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip speaker labels; produce words and timings only",
     )
     parser.add_argument(
+        "--wait", action="store_true",
+        help="stay running until the jobs finish, printing their status. Off "
+             "by default - the jobs are chained by Slurm and do not need it",
+    )
+    parser.add_argument(
         "--max-files", type=int, default=None,
         help="only process this many interviews - useful for a first test run",
     )
@@ -71,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_files is not None:
         config.max_files = args.max_files
 
-    return TranscriptionPipeline(skip_upload=args.skip_upload).run()
+    return TranscriptionPipeline(skip_upload=args.skip_upload, wait=args.wait).run()
 
 
 if __name__ == "__main__":

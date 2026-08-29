@@ -100,11 +100,13 @@ Nothing was found to do. Possible reasons:
   tracking sheet.
 - **Wrong source.** `--source local` needs `--input` pointing at a folder that
   actually contains audio.
-- **`config_json_path` and `output_config_path` are the same file.** The output
-  file marks work as done, so pointing both at it means every entry is skipped.
-  You will see a `WARNING` about this at the start of the run. Use
-  `public/config-to-process.json` for the input and `public/config.json` for the
-  output.
+- **`config_json_path` points at a file that is not there,** or is not a JSON
+  list. The prepare job prints `Config file not found:` or `Could not parse`
+  with the path it tried. The path is relative to the top of the reviewer repo,
+  so `public/config-to-process.json`, not a path on scratch.
+- **Everything in the list is already in the transcripts repository.** The
+  prepare job prints how many it found. Set `check_transcripts_repo = False`
+  to transcribe them again.
 
 ---
 
@@ -120,7 +122,7 @@ python scripts/run_pipeline.py
 If you submit with `sbatch` directly, pass it through:
 
 ```bash
-sbatch --export=ALL,SMB_PASSWORD="$SMB_PASSWORD" config/run.slurm
+sbatch --export=ALL,SMB_PASSWORD="$SMB_PASSWORD" run_transcribe.slurm
 ```
 
 ---
@@ -170,7 +172,7 @@ Retry them after fixing the cause:
 
 ```bash
 python scripts/transcribe.py requeue --queue data/queue
-sbatch config/run.slurm
+sbatch run_transcribe.slurm
 ```
 
 ---
@@ -195,7 +197,7 @@ It must be longer than your slowest single recording.
 Expected on a big collection. Submit again:
 
 ```bash
-sbatch config/run.slurm
+sbatch run_transcribe.slurm
 ```
 
 Finished interviews are skipped. Interviews that were in progress go back in the
@@ -296,7 +298,7 @@ gets purged. Check `git_token`, `git_owner` and `git_repo_name`, then run again.
 
 ## Does re-running delete my transcripts?
 
-No. `run_pipeline.py` and `sbatch config/run.slurm` both leave the output folder
+No. `run_pipeline.py` and `sbatch run_transcribe.slurm` both leave the output folder
 alone — it is what tells the pipeline which interviews are already done.
 
 To redo everything on purpose, see below.

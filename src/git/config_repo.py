@@ -125,128 +125,114 @@ class ConfigRepoManager:
         return True
     
     def get_processed_names(self) -> set:
-        """
-        Get set of names that have already been processed (exist in config.json).
-        
-        Returns:
-            Set of name strings that are already in config.json
+        """Names already listed in output_config_path.
+
+        Used when writing that file, to replace an entry rather than add a
+        second copy of it. It is NOT used to decide what to transcribe - see
+        read_config_to_process().
         """
         config_path = os.path.join(self.repo_folder, self.output_config_path)
-        
+
         if not os.path.exists(config_path):
             return set()
-        
+
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                existing_entries = json.load(f)
-            
-            # Extract all names from existing entries
-            processed_names = {entry.get("name", "") for entry in existing_entries if entry.get("name")}
-            return processed_names
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"Warning: Could not read config.json for processed names: {e}")
+            with open(config_path, "r", encoding="utf-8") as handle:
+                existing_entries = json.load(handle)
+            return {e.get("name") for e in existing_entries if e.get("name")}
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"Warning: could not read {self.output_config_path}: {exc}")
             return set()
-    
+
     def read_config_to_process(self) -> List[Dict[str, Any]]:
-        """
-        Read and parse config-to-process.json, filtering out already processed entries.
-        
-        Returns:
-            List of config entries that have NOT yet been processed
+        """Read the work list from config_json_path.
+
+        Returns every entry. It deliberately does NOT filter against
+        output_config_path: that file is written *after* a run so the reviewer
+        app has links to the transcripts, and it is not a record of what has
+        been transcribed.
+
+        What has already been done is decided by the transcripts repository
+        instead - see TranscriptionPipeline._collect_completed(). That record
+        survives a /scratch purge and does not depend on the previous run
+        having finished its final step.
         """
         config_path = os.path.join(self.repo_folder, self.config_json_path)
-
-        if self.config_json_path == self.output_config_path:
-            # The output file is what marks entries as already done. If it is
-            # also the input, every entry in it is treated as finished, so the
-            # run finds nothing to do - and reports it as "all done" rather
-            # than as a misconfiguration.
-            print(
-                "WARNING: config_json_path and output_config_path are both "
-                f"{self.config_json_path!r}.\n"
-                "         The output file marks work as done, so every entry in "
-                "it is skipped --\n"
-                "         which means this run will find nothing to transcribe. "
-                "Use two files:\n"
-                "         public/config-to-process.json (input) and "
-                "public/config.json (output)."
-            )
 
         if not os.path.exists(config_path):
             print(f"Config file not found: {config_path}")
             return []
-        
+
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-            
-            total_entries = len(config_data)
-            print(f"Read {total_entries} entries from {self.config_json_path}")
-            
-            # Filter out already processed entries
-            processed_names = self.get_processed_names()
-            if processed_names:
-                print(f"Found {len(processed_names)} already-processed entries in "
-                      f"{self.output_config_path}")
-                
-                new_entries = []
-                skipped = 0
-                for entry in config_data:
-                    name = entry.get("name", "")
-                    if name in processed_names:
-                        skipped += 1
-                    else:
-                        new_entries.append(entry)
-                
-                if skipped > 0:
-                    print(f"Skipping {skipped} already processed entries")
-                print(f"Remaining entries to process: {len(new_entries)}")
-                return new_entries
-            
-            return config_data
-        except json.JSONDecodeError as e:
-            print(f"Error parsing config JSON: {e}")
+            with open(config_path, "r", encoding="utf-8") as handle:
+                config_data = json.load(handle)
+        except json.JSONDecodeError as exc:
+            print(f"Could not parse {self.config_json_path}: {exc}")
             return []
-        except Exception as e:
-            print(f"Error reading config file: {e}")
-            return []
-    
+
+        print(f"Read {len(config_data)} entries from {self.config_json_path}")
+
+        if self.config_json_path == self.output_config_path:
+            print(
+                f"Note: {self.config_json_path} is both the work list and the "
+                "file written afterwards,"
+            )
+            print("      so this run will replace it with the transcript links.")
+
+        return config_data
+
     def update_config_json(self, new_entries: List[Dict[str, Any]]) -> bool:
-        """
-        Append new entries to config.json.
-        
-        Args:
-            new_entries: List of entry dicts with audio, url, vtt, name fields
-            
-        Returns:
-            bool: True if successful
+        """Write the transcript links into output_config_path.
+
+        Entries are merged by name, not appended: re-transcribing an interview
+        replaces its row instead of adding a second one. Order is preserved,
+        so the reviewer app's list does not reshuffle between runs.
         """
         config_path = os.path.join(self.repo_folder, self.output_config_path)
-        
-        # Read existing config
-        existing_entries = []
+
+        existing_entries: List[Dict[str, Any]] = []
         if os.path.exists(config_path):
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    existing_entries = json.load(f)
-                print(f"Read {len(existing_entries)} existing entries from config.json")
-            except (json.JSONDecodeError, Exception) as e:
-                print(f"Warning: Could not read existing config.json: {e}")
+                with open(config_path, "r", encoding="utf-8") as handle:
+                    existing_entries = json.load(handle)
+                print(
+                    f"Read {len(existing_entries)} existing entries from "
+                    f"{self.output_config_path}"
+                )
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"Warning: could not read existing config: {exc}")
                 existing_entries = []
-        
-        # Append new entries
-        updated_entries = existing_entries + new_entries
-        
-        # Write updated config
+
+        replacements = {e["name"]: e for e in new_entries if e.get("name")}
+
+        merged = []
+        replaced = set()
+        for entry in existing_entries:
+            name = entry.get("name")
+            if name in replacements:
+                merged.append(replacements[name])
+                replaced.add(name)
+            else:
+                merged.append(entry)
+
+        added = [e for e in new_entries if e.get("name") not in replaced]
+        merged.extend(added)
+
         try:
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(updated_entries, f, indent=2)
-            print(f"Updated config.json with {len(new_entries)} new entries (total: {len(updated_entries)})")
-            return True
-        except Exception as e:
-            print(f"Error writing config.json: {e}")
+            os.makedirs(os.path.dirname(config_path) or ".", exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as handle:
+                json.dump(merged, handle, indent=2)
+        except OSError as exc:
+            print(f"Error writing {self.output_config_path}: {exc}")
             return False
-    
+
+        updated = len(new_entries) - len(added)
+        print(
+            f"Wrote {self.output_config_path}: {len(added)} new, "
+            f"{updated} updated, {len(merged)} total"
+        )
+        return True
+
     def commit_and_push(self, message: Optional[str] = None) -> bool:
         """
         Commit changes and push to a new branch.

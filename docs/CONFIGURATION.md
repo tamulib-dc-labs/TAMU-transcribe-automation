@@ -106,7 +106,7 @@ tape hiss is the case where it might.
 |---|---|---|
 | `lease_seconds` | `5400` (90 min) | How long a worker "holds" an interview before others assume it died |
 | `max_attempts` | `3` | Tries before giving up on a file |
-| `deadline_minutes` | `2820` (47 h) | Workers stop taking new work this far into the job |
+| `deadline_minutes` | `225` (3 h 45 m) | Workers stop taking new work this far into the job |
 | `max_files` | `0` | Cap interviews per run. `0` = no cap. Useful for a small test |
 
 ## Not redoing finished work
@@ -149,17 +149,30 @@ reviewer repo's `config-to-process.json` instead of the tracking spreadsheet.
 |---|---|---|
 | `from_json` | `False` | Take the work list from the reviewer repo |
 | `config_repo_name` | `"edge-grant-reviewer"` | The repo holding the list |
-| `config_json_path` | `"public/config-to-process.json"` | The list of work, inside that repo |
+| `config_json_path` | `"public/config-to-process.json"` | The list of work to read, inside that repo |
 | `output_config_path` | `"public/config.json"` | Written after a run, with the transcript links |
 
-**These two must be different files.** The output file is what marks an
-interview as done, so if it is also the input, every entry counts as finished
-and the run finds nothing to transcribe. The pipeline warns if you set them the
-same.
+**`config_json_path` is read; `output_config_path` is written.** They do
+different jobs and neither affects the other:
 
-The repo is cloned on the login node — it is private, so the job cannot read it
-directly. Entries already transcribed are dropped, and the rest are written to
-`data/work_list.json` for the job.
+- `config_json_path` is the list of interviews to transcribe. Every entry in it
+  is queued.
+- `output_config_path` is written at the *end* of a run, adding the JSON and
+  VTT links for the transcripts that were produced, so the reviewer app can
+  show them on the next visit. It is **not** consulted beforehand and does not
+  decide what gets skipped — that comes from the transcripts repository (see
+  `check_transcripts_repo`).
+
+Entries are merged into the output by `name`, so re-transcribing an interview
+replaces its row rather than adding a second one. Interviews with no transcript
+yet are left untouched.
+
+You *can* point both at the same file. The run then reads it, transcribes
+everything listed, and overwrites it with the links — the pipeline prints a note
+when you do. Two files is still clearer.
+
+The repo is cloned by the prepare job, which reaches GitHub through WebProxy.
+The entries are written to `data/work_list.json` for the filling step.
 
 Each entry needs a **`name`** and an **`audio`** URL. Transcripts are named
 after `name`, so `02_00113` produces `02_00113.json` and `02_00113.vtt`.
@@ -168,8 +181,8 @@ after `name`, so `02_00113` produces `02_00113.json` and `02_00113.vtt`.
 2 hours and the lease is 90 minutes, another worker will assume the first one
 died and start the same file again. Raise it if your recordings are long.
 
-**`deadline_minutes` must be below the job's time limit.** The default 47 hours
-sits under the 48-hour limit in `config/run.slurm`, leaving time to finish the
+**`deadline_minutes` must be below the job's time limit.** The default 3 h 45 m
+sits under the 4-hour limit in `config/run.slurm`, leaving time to finish the
 file in hand and exit cleanly. If you shorten the job's `--time`, shorten this
 too.
 
@@ -219,13 +232,15 @@ These are worked out from `working_dir` — you rarely change them.
 
 ## The Slurm job
 
-Job size is in `config/run.slurm`, not in `config.py`:
+Job size is in the Slurm files, not in `config.py`. There are three:
+`config/prepare.slurm` and `config/publish.slurm` are small CPU jobs;
+`config/run.slurm` is the GPU one worth tuning:
 
 ```bash
 #SBATCH --array=0-3            # 4 workers at once
 #SBATCH --gres=gpu:a100:2      # 2 GPUs each
-#SBATCH --time=48:00:00        # Grace allows up to 4 days
-#SBATCH --cpus-per-task=48
+#SBATCH --time=04:00:00        # Grace allows up to 4 days on the gpu partition
+#SBATCH --cpus-per-task=24
 #SBATCH --mem=360G
 ```
 

@@ -171,19 +171,28 @@ class CommandRunner:
             return False
     
     @staticmethod
-    def submit_slurm_job(job_file: str) -> Optional[str]:
+    def submit_slurm_job(job_file: str, dependency: Optional[str] = None) -> Optional[str]:
         """
         Submit a SLURM job and return the job ID.
         
         Args:
             job_file: Path to SLURM job file
-            
+            dependency: Slurm dependency, e.g. "afterok:12345". The job stays
+                queued until that one finishes successfully, which is how
+                prepare -> transcribe -> publish stay ordered without anything
+                waiting on a login node.
+
         Returns:
             str: Job ID if successful, None otherwise
         """
+        command = ["sbatch"]
+        if dependency:
+            command.append(f"--dependency={dependency}")
+        command.append(job_file)
+
         try:
             result = subprocess.run(
-                ["sbatch", job_file],
+                command,
                 capture_output=True,
                 text=True,
                 check=True

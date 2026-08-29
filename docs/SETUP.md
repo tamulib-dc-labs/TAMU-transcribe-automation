@@ -212,14 +212,15 @@ cd /scratch/user/$USER/asr
 mkdir -p data/oral_input
 cp /path/to/one_interview.mp3 data/oral_input/
 
-python repo/scripts/transcribe.py fill \
-    --queue  data/queue \
-    --output data/oral_output \
+python repo/scripts/run_pipeline.py \
     --source local \
-    --input  data/oral_input
-
-sbatch repo/config/run.slurm
+    --input data/oral_input \
+    --max-files 1 \
+    --skip-upload
 ```
+
+That submits two jobs — one to fill the queue, one to transcribe — and exits.
+`--skip-upload` keeps this test off GitHub.
 
 Watch it:
 
@@ -253,7 +254,16 @@ python repo/scripts/run_pipeline.py
 `local_settings.py` and `export GIT_TOKEN=...` and `export SMB_PASSWORD=...`
 instead.)
 
-This submits the job, waits, and uploads results when it is done.
+This submits three jobs and exits straight away:
+
+```
+Submitted batch job 1234567     prepare
+Submitted batch job 1234568     transcribe  (after prepare)
+Submitted batch job 1234569     publish     (after transcribe)
+```
+
+Each one starts only if the one before it succeeded. You can log out; Slurm
+keeps them going. Nothing is transcribed on the login node.
 
 Useful flags:
 
@@ -263,6 +273,7 @@ Useful flags:
 | `--max-files 5` | Only do five interviews — good for a first real run |
 | `--skip-upload` | Leave transcripts on disk instead of pushing to GitHub |
 | `--no-diarize` | Words only, no speaker labels |
+| `--wait` | Stay attached and print job status until they finish |
 
 Re-running is always safe. Interviews that already have a transcript are
 skipped, so nothing is redone and nothing is deleted.
@@ -286,11 +297,22 @@ python repo/scripts/transcribe.py status --queue data/queue --failures
 
 ## If a job runs out of time
 
-Grace allows 4 days per GPU job. If a run is cut off, just submit again:
+The GPU job asks for 4 hours. If a run is cut off, just start it again:
 
 ```bash
-sbatch repo/config/run.slurm
+python repo/scripts/run_pipeline.py
 ```
+
+To re-run only the transcription, without re-listing and re-uploading, submit
+the filled copy the last run left behind:
+
+```bash
+sbatch run_transcribe.slurm
+```
+
+(`config/run.slurm` itself is a template with `{{PLACEHOLDER}}` in it, so it
+cannot be submitted directly. `run_pipeline.py` fills it in and writes
+`run_transcribe.slurm` next to it.)
 
 Finished interviews are skipped. Interviews that were half-done when the job
 died are put back in the queue automatically. Nothing is lost and nothing is
@@ -303,7 +325,7 @@ transcribed twice.
 ```bash
 python repo/scripts/transcribe.py status  --queue data/queue --failures
 python repo/scripts/transcribe.py requeue --queue data/queue
-sbatch repo/config/run.slurm
+sbatch run_transcribe.slurm
 ```
 
 ---
@@ -312,7 +334,8 @@ sbatch repo/config/run.slurm
 
 | Command | Does |
 |---|---|
-| `sbatch config/run.slurm` | Start (or resume) transcription |
+| `python scripts/run_pipeline.py` | Start (or resume) the whole pipeline |
+| `sbatch run_transcribe.slurm` | Re-run only the GPU step |
 | `squeue -u $USER` | Are my jobs running? |
 | `scancel <jobid>` | Stop a job |
 | `transcribe.py status --queue Q` | How far along am I? |

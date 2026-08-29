@@ -8,17 +8,35 @@ For diagrams, open [architecture.html](architecture.html).
 
 ## The shape of a run
 
-One `sbatch` does everything.
+Three jobs, chained. `run_pipeline.py` submits all three and exits.
 
 ```
-1. list the work   →  queue/pending/    (no audio moves)
-2. do the work     →  four jobs, each taking one interview at a time
-3. upload          →  after the job, from a login node
+prepare      1 CPU task, no GPU   →  list the work into queue/pending/
+   │                                  (no audio moves)
+   ↓ afterok
+transcribe   4 array tasks, GPU   →  each takes one interview at a time
+   │
+   ↓ afterok
+publish      1 CPU task, no GPU   →  push transcripts, write back the links
 ```
+
+`afterok` means a job only starts if the one before it succeeded. Slurm
+enforces the order, so nothing has to sit and wait.
+
+**The login node only runs `sbatch`.** It is a shared machine that everyone
+logs into, and running real work there slows it down for everyone — TAMU asks
+you not to. `sbatch` is the one thing that *has* to happen there, because that
+is the only place you can submit from. Everything else — cloning repositories,
+downloading audio, transcribing, uploading — happens on a compute node.
+
+Compute nodes reach the internet through `module load WebProxy`, which is why
+they can do the network steps at all.
 
 ---
 
-## Step 1 — listing the work
+## Step 1 — the prepare job
+
+`scripts/prepare_work.py`, from `config/prepare.slurm`. One task, no GPU.
 
 Reads the tracking spreadsheet (or the reviewer app's JSON list) and writes one
 small file per interview into `data/queue/pending/`.
@@ -35,9 +53,9 @@ Three kinds: `local` (already on disk), `url` (downloadable), `smb` (the file
 share).
 
 **In `--from-json` mode there is one extra step first.** The list of interviews
-lives in a private GitHub repo, so `run_pipeline.py` clones it on the login
-node, drops anything already transcribed, and writes what is left to
-`data/work_list.json`. The job reads that file. Still no audio — only the list.
+lives in a GitHub repo, so the prepare job clones it, reads
+`config-to-process.json`, and writes the entries to `data/work_list.json`. The
+filling step then reads that file. Still no audio — only the list.
 
 Each entry's audio comes from its **`audio`** field. Note that these entries
 also have a `url` field, which is the *transcript* link the reviewer app shows
@@ -47,32 +65,40 @@ speech model.
 Output files are named after the entry's `name`, so you can predict a
 transcript's filename from the config without looking at the audio.
 
-This step is **idempotent** — running it twice changes nothing. That is why
-every one of the four jobs runs it at startup: whichever gets there first fills
-the queue, and the others find it already done. No coordination needed.
+This step is **idempotent** — running it twice changes nothing.
+
+It runs in its own job, once, rather than in each of the four array tasks.
+Cloning the same repository from four tasks at the same moment would have them
+writing to one directory at once.
 
 ### What counts as "already done"
 
-Three checks, in order:
+Two checks:
 
-1. **The transcripts repository.** Before submitting, the login node clones or
-   updates `edge-grant-json-and-vtts` and lists what already has a JSON there.
-2. **The reviewer repo's `config.json`** — json mode only. Names listed there
-   are treated as finished.
-3. **The local output folder**, `data/oral_output/json/`.
+1. **The transcripts repository.** The prepare job lists what already has a
+   JSON in `edge-grant-json-and-vtts` and writes the names to
+   `data/completed.json`.
+2. **The local output folder**, `data/oral_output/json/`.
 
 The first check matters because **`/scratch` is purged periodically**. The local
 folder is a cache; the GitHub repository is the record. Without check 1, a purge
 would mean re-transcribing and re-uploading the entire collection.
 
-If the repository cannot be reached the run continues on checks 2 and 3 alone —
-some work may be redone, which is better than refusing to start.
+If the repository cannot be reached the run continues on check 2 alone — some
+work may be redone, which is better than refusing to start.
+
+**The reviewer repo's `config.json` is not one of the checks.** That file is
+*written* at the end of a run so the reviewer app has links to the new
+transcripts; it is not a record of what has been transcribed. Reading it to
+decide what to skip made the two jobs of that file contradict each other, and
+made `config.json` unusable as both input and output.
 
 ---
 
-## Step 2 — doing the work
+## Step 2 — the transcribe job
 
-Each job loops:
+`scripts/transcribe.py`, from `config/run.slurm`. Four array tasks, each on a
+GPU node with two A100s. Each task loops:
 
 1. **Claim** the next interview from the queue.
 2. **Download** just that one file into node-local `$TMPDIR`.
@@ -198,7 +224,9 @@ Failures are handled by kind, not uniformly:
 ## Where the code lives
 
 ```
-config/run.slurm         the job: list the work, then do it
+config/prepare.slurm     job 1: list the work
+config/run.slurm         job 2: transcribe it (GPU)
+config/publish.slurm     job 3: upload the results
 scripts/transcribe.py    fill / work / status / requeue
 scripts/run_pipeline.py  submit, wait, upload
 

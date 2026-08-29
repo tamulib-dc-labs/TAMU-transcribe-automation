@@ -113,8 +113,9 @@ class PipelineConfig:
     lease_seconds: int = 5400
     max_attempts: int = 3
     #: Stop claiming this many minutes into the job, leaving room to finish the
-    #: file in hand. Keep it below the Slurm wall clock.
-    deadline_minutes: int = 2820
+    #: file in hand. Keep it below the Slurm wall clock in config/run.slurm
+    #: (currently 4 hours, so 225 minutes leaves 15 to finish and exit).
+    deadline_minutes: int = 225
     
     
     # --- Derived Properties ---
@@ -164,8 +165,8 @@ class PipelineConfig:
     def completed_list_path(self) -> str:
         """Interview ids that already have a transcript in the GitHub repo.
 
-        Written on the login node, read by the job, so a purged scratch does
-        not cause everything to be redone.
+        Written by the prepare job, read by the transcribe job, so a purged
+        scratch does not cause everything to be redone.
         """
         return os.path.join(self.data_dir, "completed.json")
 
@@ -222,8 +223,26 @@ class PipelineConfig:
 
     @property
     def slurm_job_path(self) -> str:
-        """Path to the SLURM job template."""
+        """The GPU transcription job."""
         return os.path.join(self.working_dir, "config", "run.slurm")
+
+    @property
+    def prepare_slurm_path(self) -> str:
+        """The job that fills the queue. No GPU."""
+        return os.path.join(self.working_dir, "config", "prepare.slurm")
+
+    @property
+    def publish_slurm_path(self) -> str:
+        """The job that uploads the transcripts. No GPU."""
+        return os.path.join(self.working_dir, "config", "publish.slurm")
+
+    @property
+    def prepare_script_path(self) -> str:
+        return os.path.join(self.working_dir, "scripts", "prepare_work.py")
+
+    @property
+    def publish_script_path(self) -> str:
+        return os.path.join(self.working_dir, "scripts", "publish.py")
 
     @property
     def requirements_path(self) -> str:

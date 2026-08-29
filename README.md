@@ -79,18 +79,21 @@ That submits the job to Grace, waits for it to finish, and uploads the results.
 
 ## How a run works
 
-One `sbatch` does the whole thing:
+`python scripts/run_pipeline.py` submits three chained jobs and exits. Every
+step runs on a compute node — the login node only submits.
 
-1. **List the work.** Reads the tracking spreadsheet (or the reviewer app's
-   list) and writes one entry per interview into a queue folder on `/scratch`.
-   No audio is downloaded yet.
-2. **Do the work.** Four jobs run at once. Each takes the next interview from
-   the queue, downloads just that file, transcribes it, saves the results, and
-   deletes its copy of the audio.
-3. **Upload.** After the job finishes, the transcripts are pushed to the
-   reviewer repository.
+1. **prepare.** Reads the tracking spreadsheet (or the reviewer app's list) and
+   writes one entry per interview into a queue folder on `/scratch`. No audio
+   is downloaded yet.
+2. **transcribe.** Four array tasks run at once on GPU nodes. Each takes the
+   next interview from the queue, downloads just that file, transcribes it,
+   saves the results, and deletes its copy of the audio.
+3. **publish.** Pushes the transcripts to the reviewer repository and writes
+   the new links back into its `config.json`.
 
-If the job is interrupted, run `sbatch config/run.slurm` again. Finished
+Each job starts only if the one before it succeeded.
+
+If the job is interrupted, run `sbatch run_transcribe.slurm` again. Finished
 interviews are skipped; unfinished ones are picked back up.
 
 ---
@@ -127,7 +130,7 @@ pip install pytest
 pytest -q
 ```
 
-247 tests. They need no GPU, no model weights and no internet — the models are
+263 tests. They need no GPU, no model weights and no internet — the models are
 stubbed, so they run on a login node or your laptop.
 
 ---
