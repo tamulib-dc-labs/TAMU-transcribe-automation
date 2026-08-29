@@ -208,9 +208,13 @@ class TranscriptionPipeline:
         record. Without this check a purge means re-transcribing and
         re-uploading the whole collection.
 
-        Writes the ids to data/completed.json for the job to read. Never fatal:
-        if the repo cannot be reached, the run proceeds using the local folder
-        alone and may redo some work.
+        Only filenames are needed, so this uses a blobless, checkout-free clone
+        in its own directory. It never touches the uploader's working copy -
+        an earlier version reused it and hit "untracked working tree files
+        would be overwritten by checkout", which failed the whole step.
+
+        Never fatal: if the repository cannot be reached the run proceeds using
+        the local folder alone and may redo some work.
         """
         completed_list = Path(self.config.completed_list_path)
         completed_list.parent.mkdir(parents=True, exist_ok=True)
@@ -221,35 +225,58 @@ class TranscriptionPipeline:
 
         Logger.log_step(5, "Check which interviews are already transcribed", "STARTED")
         try:
-            uploader = GitUploader(
-                source_folder=self.config.oral_output_path,
-                repo_folder=self.config.git_repo_path,
-                owner=self.config.git_owner,
-                repo_name=self.config.git_repo_name,
-                username=self.config.git_username,
-                token=self.config.get_git_token(),
-            )
-            if not uploader.setup_repository():
-                raise RuntimeError("could not clone or update the transcripts repository")
-
-            done = sorted(
-                path.stem
-                for path in Path(self.config.git_repo_path, "json").glob("*.json")
-            )
+            done = self._list_transcribed()
         except Exception as exc:  # noqa: BLE001 - a slow start beats a failed run
             Logger.log_warning(
-                f"Could not read the transcripts repository ({exc}). Continuing with "
-                "the local output folder only - some interviews may be redone."
+                f"Could not read {self.config.git_repo_name} ({exc}). Continuing "
+                "with the local output folder only - some interviews may be redone."
             )
             completed_list.write_text("[]", encoding="utf-8")
             return 0
 
         completed_list.write_text(json.dumps(done, indent=2), encoding="utf-8")
         Logger.log_step(
-            5, f"{len(done)} interview(s) already transcribed in {self.config.git_repo_name}",
+            5,
+            f"{len(done)} interview(s) already transcribed in {self.config.git_repo_name}",
             "COMPLETED",
         )
         return len(done)
+
+    def _list_transcribed(self) -> list:
+        """Filenames under json/ on the transcripts repo's main branch.
+
+        Reads the remote's file list without creating a working tree, so it
+        cannot collide with anything already on disk.
+        """
+        index_dir = os.path.join(self.config.data_dir, ".transcripts-index")
+        url = (
+            f"https://{self.config.git_username}:{self.config.get_git_token()}"
+            f"@github.com/{self.config.git_owner}/{self.config.git_repo_name}.git"
+        )
+
+        def git(*args, cwd=None):
+            result = subprocess.run(
+                ["git", *args], cwd=cwd, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip().splitlines()[-1:] or "git failed")
+            return result.stdout
+
+        if not os.path.isdir(os.path.join(index_dir, ".git")):
+            os.makedirs(os.path.dirname(index_dir), exist_ok=True)
+            # --filter=blob:none fetches the file *names* without their contents;
+            # --no-checkout means no working tree is ever written.
+            git("clone", "--filter=blob:none", "--no-checkout", url, index_dir)
+        else:
+            git("remote", "set-url", "origin", url, cwd=index_dir)
+            git("fetch", "--filter=blob:none", "origin", "main", cwd=index_dir)
+
+        listing = git("ls-tree", "-r", "--name-only", "origin/main", "json/", cwd=index_dir)
+        return sorted(
+            Path(line).stem
+            for line in listing.splitlines()
+            if line.strip().endswith(".json")
+        )
 
     def _submit_slurm_job(self) -> str:
         """Inject paths and submit SLURM job."""

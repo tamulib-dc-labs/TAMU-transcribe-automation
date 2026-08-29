@@ -259,6 +259,27 @@ picked up next time.
 
 ---
 
+## "untracked working tree files would be overwritten by checkout"
+
+A previous run copied `json/` and `vtts/` into the transcripts repo folder and
+did not finish, leaving those files untracked. Git then refuses to check out
+`main` over them.
+
+The pipeline now recovers on its own: it takes the committed versions and
+re-adds yours immediately afterwards. If you hit it on an older version, clear
+the leftovers by hand:
+
+```bash
+cd ../edge-grant-json-and-vtts     # next to your working directory
+git checkout -f main
+git pull origin main
+```
+
+Nothing is lost — your transcripts are still in `data/oral_output`, and the next
+upload re-adds them.
+
+---
+
 ## It is re-transcribing things I already did
 
 Check the start of the log:

@@ -535,28 +535,19 @@ def test_local_settings_is_gitignored():
 # ------------------------------------------ the durable record of finished work
 
 
-class FakeUploader:
-    """Stands in for the transcripts repository."""
-
-    def __init__(self, ok=True):
-        self.ok = ok
-
-    def setup_repository(self):
-        return self.ok
-
-
 def with_transcripts_repo(config, tmp_path, monkeypatch, done_ids, ok=True):
-    import src.pipeline as pipeline_module
+    """Stub the remote listing - no network, no clone, no working tree."""
     from src.pipeline import TranscriptionPipeline
 
     config.working_dir = str(tmp_path / "repo")
     config.git_token = "t"
-    repo_json = Path(config.git_repo_path) / "json"
-    repo_json.mkdir(parents=True, exist_ok=True)
-    for name in done_ids:
-        (repo_json / f"{name}.json").write_text("{}", encoding="utf-8")
 
-    monkeypatch.setattr(pipeline_module, "GitUploader", lambda **kw: FakeUploader(ok))
+    def fake_list(self):
+        if not ok:
+            raise RuntimeError("could not reach the repository")
+        return sorted(done_ids)
+
+    monkeypatch.setattr(TranscriptionPipeline, "_list_transcribed", fake_list)
     return TranscriptionPipeline()
 
 
@@ -607,3 +598,60 @@ def test_the_job_is_given_the_completed_list(config, tmp_path):
 
     assert "--skip-list" in written["text"]
     assert config.completed_list_path in written["text"]
+
+
+def test_the_completed_check_never_creates_a_working_tree(config, tmp_path, monkeypatch):
+    """It only needs filenames. Checking out files is what broke it before:
+    'untracked working tree files would be overwritten by checkout'."""
+    import src.pipeline as pipeline_module
+
+    from src.pipeline import TranscriptionPipeline
+
+    config.working_dir = str(tmp_path)
+    config.git_token = "t"
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = "json/iv_001.json\njson/iv_002.json\n"
+        stderr = ""
+
+    def fake_run(cmd, cwd=None, capture_output=True, text=True):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr(pipeline_module.subprocess, "run", fake_run)
+    ids = TranscriptionPipeline()._list_transcribed()
+
+    assert ids == ["iv_001", "iv_002"]
+    clone = next(c for c in calls if "clone" in c)
+    assert "--no-checkout" in clone, "a working tree would collide with existing files"
+    assert "--filter=blob:none" in clone, "file contents are not needed, only names"
+    assert not any("checkout" == c[1] for c in calls if len(c) > 1)
+
+
+def test_the_completed_check_uses_its_own_directory(config, tmp_path, monkeypatch):
+    """It must not share the uploader's clone, which does have a working tree."""
+    import src.pipeline as pipeline_module
+
+    from src.pipeline import TranscriptionPipeline
+
+    config.working_dir = str(tmp_path)
+    config.git_token = "t"
+    seen = {}
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, cwd=None, capture_output=True, text=True):
+        if "clone" in cmd:
+            seen["target"] = cmd[-1]
+        return Result()
+
+    monkeypatch.setattr(pipeline_module.subprocess, "run", fake_run)
+    TranscriptionPipeline()._list_transcribed()
+
+    assert seen["target"] != config.git_repo_path
+    assert ".transcripts-index" in seen["target"]

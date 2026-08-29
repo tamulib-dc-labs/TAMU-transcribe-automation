@@ -109,10 +109,21 @@ class GitUploader:
             if not self._run_git_command(["git", "remote", "set-url", "origin", self.remote_url]):
                 return False
             
-            # Checkout main and pull latest
+            # Checkout main and pull latest.
+            #
+            # A previous run rsyncs json/ and vtts/ into this folder before
+            # committing. If that run did not finish, those files are left
+            # untracked and git refuses to check out main over them. They are
+            # regenerated from the output folder by sync_files() moments later,
+            # so taking main's copy is safe.
             if not self._run_git_command(["git", "checkout", "main"]):
-                return False
-            
+                print(
+                    "Checkout blocked by leftover files from a previous run; "
+                    "taking the committed versions (sync_files re-adds ours next)."
+                )
+                if not self._run_git_command(["git", "checkout", "-f", "main"]):
+                    return False
+
             if not self._run_git_command(["git", "pull", "origin", "main"]):
                 return False
         
