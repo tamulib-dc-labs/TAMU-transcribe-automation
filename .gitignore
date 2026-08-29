@@ -63,3 +63,6 @@ secrets.yaml
 *.temp
 tmp/
 temp/
+
+# Your own settings, including secrets
+config/local_settings.py

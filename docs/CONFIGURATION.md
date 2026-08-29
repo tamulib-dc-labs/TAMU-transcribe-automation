@@ -3,9 +3,43 @@
 Every setting lives in `src/config.py`. This page says what each one does and
 when you would change it.
 
+## Where to put your own values
+
+**Do not edit `src/config.py` for anything private.** This repository is
+public — a token committed there is pushed to GitHub and revoked within
+minutes.
+
+Put your settings in `config/local_settings.py` instead. It is gitignored, so
+it never leaves your machine, and anything in it overrides `src/config.py`.
+
+```bash
+cp config/local_settings.example.py config/local_settings.py
+# then edit it
+```
+
+```python
+# config/local_settings.py
+smb_username = "your_netid"
+smb_password = "your_netid_password"
+
+git_owner    = "tamulib-dc-labs"
+git_username = "YourGitHubUsername"
+git_token    = "ghp_xxxxxxxxxxxx"
+
+cache_dir = "/scratch/user/your_netid/asr/cache"
+```
+
+Leave out anything you do not need — the defaults still apply. On startup the
+pipeline prints which settings it picked up (names only, never values).
+
+Credentials can still come from the environment instead, if you prefer:
+`GIT_TOKEN` and `SMB_PASSWORD`. `local_settings.py` wins if both are set.
+
 ---
 
-## Must change — your own details
+## Settings — your own details
+
+Set these in `config/local_settings.py`.
 
 | Setting | Example | What it is |
 |---|---|---|
@@ -16,12 +50,10 @@ when you would change it.
 | `sheet_url` | `"https://docs.google.com/..."` | Tracking spreadsheet listing which folders to process |
 | `cache_dir` | `"/scratch/user/jdoe/asr/cache"` | Where model weights are stored. **Use scratch, not home** |
 
-Passwords and tokens are **not** in this file. They come from the environment:
+| `git_token` | `"ghp_..."` | GitHub token with `repo` scope |
+| `smb_password` | `"..."` | Your NetID password |
 
-```bash
-export GIT_TOKEN=...          # GitHub personal access token
-export SMB_PASSWORD=...       # your NetID password, SMB mode only
-```
+Or export `GIT_TOKEN` and `SMB_PASSWORD` instead of writing them down.
 
 ---
 

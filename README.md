@@ -50,12 +50,15 @@ HPRC account to your first transcript.
 Already set up:
 
 ```bash
-export GIT_TOKEN=your_github_token
-export SMB_PASSWORD=your_netid_password      # only if reading from the file share
+cp config/local_settings.example.py config/local_settings.py   # once, then edit
 
-python scripts/run_pipeline.py               # from the tracking spreadsheet
-python scripts/run_pipeline.py --from-json   # from the reviewer app's list
+python scripts/run_pipeline.py                       # from the tracking spreadsheet
+python scripts/run_pipeline.py --from-json           # from the reviewer app's list
+python scripts/run_pipeline.py --source local --max-files 1 --skip-upload
 ```
+
+Your NetID, GitHub token and paths go in `config/local_settings.py`. It is
+gitignored, so nothing private is committed.
 
 That submits the job to Grace, waits for it to finish, and uploads the results.
 
@@ -124,7 +127,7 @@ pip install pytest
 pytest -q
 ```
 
-226 tests. They need no GPU, no model weights and no internet — the models are
+233 tests. They need no GPU, no model weights and no internet — the models are
 stubbed, so they run on a login node or your laptop.
 
 ---

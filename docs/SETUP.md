@@ -121,7 +121,7 @@ pip install pytest
 pytest -q
 ```
 
-You should see `226 passed`. These do not use a GPU or download anything, so
+You should see `233 passed`. These do not use a GPU or download anything, so
 they are safe to run on a login node. If they pass, the code is installed
 correctly.
 
@@ -129,21 +129,32 @@ correctly.
 
 ## Step 7 — Set your own details
 
-Open `src/config.py` and change these to yours:
+Copy the example settings file and edit it:
 
-```python
-smb_username: str = "your_netid"
-
-git_owner:    str = "your_github_org"
-git_repo_name: str = "your_transcripts_repo"
-git_username: str = "your_github_username"
-
-sheet_url: str = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
-
-cache_dir: str = "/scratch/user/YOUR_NETID/asr/cache"
+```bash
+cp config/local_settings.example.py config/local_settings.py
 ```
 
-Every setting is explained in [CONFIGURATION.md](CONFIGURATION.md).
+```python
+# config/local_settings.py
+smb_username = "your_netid"
+smb_password = "your_netid_password"
+
+git_owner    = "your_github_org"
+git_username = "your_github_username"
+git_token    = "ghp_xxxxxxxxxxxx"          # needs 'repo' scope
+git_repo_name = "your_transcripts_repo"
+
+sheet_url = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
+cache_dir = "/scratch/user/your_netid/asr/cache"
+```
+
+**Edit this file, not `src/config.py`.** This repository is public, so a token
+committed to `src/config.py` would be pushed to GitHub and revoked within
+minutes. `config/local_settings.py` is gitignored and never leaves your machine.
+
+Anything you leave out keeps its default. Every setting is explained in
+[CONFIGURATION.md](CONFIGURATION.md).
 
 ---
 
@@ -235,11 +246,12 @@ the whole collection.
 ## Step 10 — Run the collection
 
 ```bash
-export GIT_TOKEN=your_github_token
-export SMB_PASSWORD=your_netid_password     # SMB mode only
-
 python repo/scripts/run_pipeline.py
 ```
+
+(If you would rather not write credentials down, leave them out of
+`local_settings.py` and `export GIT_TOKEN=...` and `export SMB_PASSWORD=...`
+instead.)
 
 This submits the job, waits, and uploads results when it is done.
 

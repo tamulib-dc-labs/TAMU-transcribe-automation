@@ -450,3 +450,83 @@ def test_every_worker_flag_in_the_template_is_one_the_worker_accepts():
 
     unknown = used - accepted
     assert not unknown, f"run.slurm passes flags the worker does not accept: {sorted(unknown)}"
+
+
+# ---------------------------------------------------- local settings overlay
+
+
+def write_local_settings(tmp_path, body):
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "local_settings.py").write_text(body, encoding="utf-8")
+
+
+def test_local_settings_override_the_defaults(config, tmp_path):
+    from src.config import apply_local_settings
+
+    config.working_dir = str(tmp_path)
+    write_local_settings(tmp_path, 'git_owner = "my-org"\nmax_files = 5\n')
+
+    applied = apply_local_settings(config)
+
+    assert sorted(applied) == ["git_owner", "max_files"]
+    assert config.git_owner == "my-org"
+    assert config.max_files == 5
+
+
+def test_secrets_can_live_in_local_settings(config, tmp_path):
+    """The repo is public, so this is the only safe place for a token."""
+    from src.config import apply_local_settings
+
+    config.working_dir = str(tmp_path)
+    write_local_settings(tmp_path, 'git_token = "ghp_secret"\nsmb_password = "pw"\n')
+    apply_local_settings(config)
+
+    assert config.get_git_token() == "ghp_secret"
+    assert config.get_smb_password() == "pw"
+
+
+def test_no_local_settings_file_is_fine(config, tmp_path):
+    from src.config import apply_local_settings
+
+    config.working_dir = str(tmp_path)
+    assert apply_local_settings(config) == []
+
+
+def test_an_unknown_option_warns_instead_of_crashing(config, tmp_path, capsys):
+    from src.config import apply_local_settings
+
+    config.working_dir = str(tmp_path)
+    write_local_settings(tmp_path, 'git_owner = "ok"\nwhisper_model = "large-v3"\n')
+
+    applied = apply_local_settings(config)
+
+    assert applied == ["git_owner"]
+    assert "whisper_model" in capsys.readouterr().out
+
+
+def test_settings_left_out_keep_their_defaults(config, tmp_path):
+    from src.config import apply_local_settings
+
+    config.working_dir = str(tmp_path)
+    default_lease = config.lease_seconds
+    write_local_settings(tmp_path, 'git_owner = "my-org"\n')
+    apply_local_settings(config)
+
+    assert config.lease_seconds == default_lease
+
+
+def test_the_example_file_only_names_real_settings(config):
+    """A typo in the example would silently do nothing for whoever copies it."""
+    import re
+
+    example = (REPO / "config" / "local_settings.example.py").read_text(encoding="utf-8")
+    named = set(re.findall(r"^#?\s*([a-z_]+) = ", example, re.M))
+
+    unknown = {n for n in named if not hasattr(config, n)}
+    assert not unknown, f"example names settings that do not exist: {sorted(unknown)}"
+
+
+def test_local_settings_is_gitignored():
+    """Committing this file is exactly what it exists to prevent."""
+    ignored = (REPO / ".gitignore").read_text(encoding="utf-8")
+    assert "config/local_settings.py" in ignored

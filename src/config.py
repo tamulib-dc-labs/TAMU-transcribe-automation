@@ -36,7 +36,7 @@ class PipelineConfig:
     smb_share: str = "digital_project_management"
     smb_base_path: str = "edge-grant/GB_38253_MP3s"
     smb_username: str = "jvk_chaitanya"
-    smb_password: str = ""  # Leave empty to prompt
+    smb_password: str = ""  # put this in config/local_settings.py, not here
     
     # --- Google Sheets Settings ---
     sheet_url: str = "https://docs.google.com/spreadsheets/d/16cHa57n7rJmS744nMH2dY2H4IKLP5fMeHJ0iY8w85EM/edit?usp=sharing"
@@ -46,7 +46,7 @@ class PipelineConfig:
     git_owner: str = "tamulib-dc-labs"
     git_repo_name: str = "edge-grant-json-and-vtts"
     git_username: str = "JvkChaitanya"
-    git_token: str = ""  # Set via environment variable GIT_TOKEN
+    git_token: str = ""  # put this in config/local_settings.py, not here
     
     #: Cap how many interviews a run queues. 0 = the whole collection.
     max_files: int = 0
@@ -247,6 +247,41 @@ class PipelineConfig:
         )
 
 
+#: Optional file holding your own settings, including secrets. It is
+#: gitignored, so anything in it stays on your machine. See
+#: config/local_settings.example.py.
+LOCAL_SETTINGS_FILE = "local_settings.py"
+
+
+def apply_local_settings(config: "PipelineConfig") -> list:
+    """Overlay config/local_settings.py onto the defaults, if it exists.
+
+    This repository is public, so a token written into config.py would be
+    pushed to GitHub and revoked within minutes. local_settings.py is
+    gitignored and is the right place for anything private.
+
+    Returns the names of the settings that were overridden.
+    """
+    path = os.path.join(config.working_dir, "config", LOCAL_SETTINGS_FILE)
+    if not os.path.exists(path):
+        return []
+
+    namespace: dict = {}
+    with open(path, "r", encoding="utf-8") as handle:
+        exec(compile(handle.read(), path, "exec"), namespace)  # noqa: S102
+
+    applied = []
+    for key, value in namespace.items():
+        if key.startswith("_") or callable(value) or isinstance(value, type):
+            continue
+        if not hasattr(config, key):
+            print(f"WARNING: {LOCAL_SETTINGS_FILE} sets unknown option {key!r}; ignoring")
+            continue
+        setattr(config, key, value)
+        applied.append(key)
+    return applied
+
+
 # Singleton instance
 _config_instance = None
 
@@ -256,6 +291,11 @@ def get_config() -> PipelineConfig:
     global _config_instance
     if _config_instance is None:
         _config_instance = PipelineConfig()
+        applied = apply_local_settings(_config_instance)
+        if applied:
+            # Never print the values - some of them are secrets.
+            print(f"Loaded {len(applied)} setting(s) from config/{LOCAL_SETTINGS_FILE}: "
+                  f"{', '.join(sorted(applied))}")
     return _config_instance
 
 
