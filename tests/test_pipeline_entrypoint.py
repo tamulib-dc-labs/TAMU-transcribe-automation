@@ -530,3 +530,80 @@ def test_local_settings_is_gitignored():
     """Committing this file is exactly what it exists to prevent."""
     ignored = (REPO / ".gitignore").read_text(encoding="utf-8")
     assert "config/local_settings.py" in ignored
+
+
+# ------------------------------------------ the durable record of finished work
+
+
+class FakeUploader:
+    """Stands in for the transcripts repository."""
+
+    def __init__(self, ok=True):
+        self.ok = ok
+
+    def setup_repository(self):
+        return self.ok
+
+
+def with_transcripts_repo(config, tmp_path, monkeypatch, done_ids, ok=True):
+    import src.pipeline as pipeline_module
+    from src.pipeline import TranscriptionPipeline
+
+    config.working_dir = str(tmp_path / "repo")
+    config.git_token = "t"
+    repo_json = Path(config.git_repo_path) / "json"
+    repo_json.mkdir(parents=True, exist_ok=True)
+    for name in done_ids:
+        (repo_json / f"{name}.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(pipeline_module, "GitUploader", lambda **kw: FakeUploader(ok))
+    return TranscriptionPipeline()
+
+
+def test_interviews_already_in_the_transcripts_repo_are_recorded(
+    config, tmp_path, monkeypatch
+):
+    """/scratch is purged; the repo is the record of what is really done."""
+    import json
+
+    pipeline = with_transcripts_repo(config, tmp_path, monkeypatch, ["iv_001", "iv_002"])
+
+    assert pipeline._collect_completed() == 2
+    written = json.loads(Path(config.completed_list_path).read_text(encoding="utf-8"))
+    assert written == ["iv_001", "iv_002"]
+
+
+def test_an_unreachable_repo_does_not_stop_the_run(config, tmp_path, monkeypatch):
+    """Redoing some work beats refusing to run at all."""
+    import json
+
+    pipeline = with_transcripts_repo(config, tmp_path, monkeypatch, ["iv_001"], ok=False)
+
+    assert pipeline._collect_completed() == 0
+    assert json.loads(Path(config.completed_list_path).read_text(encoding="utf-8")) == []
+
+
+def test_the_check_can_be_turned_off(config, tmp_path, monkeypatch):
+    pipeline = with_transcripts_repo(config, tmp_path, monkeypatch, ["iv_001"])
+    config.check_transcripts_repo = False
+
+    assert pipeline._collect_completed() == 0
+
+
+def test_the_job_is_given_the_completed_list(config, tmp_path):
+    from src.pipeline import TranscriptionPipeline
+
+    template = (REPO / "config" / "run.slurm").read_text(encoding="utf-8")
+    config.working_dir = str(tmp_path)
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "run.slurm").write_text(template, encoding="utf-8")
+
+    pipeline = TranscriptionPipeline()
+    written = {}
+    pipeline.command_runner.submit_slurm_job = lambda p: written.setdefault(
+        "text", Path(p).read_text(encoding="utf-8")
+    ) and "1"
+    pipeline._submit_slurm_job()
+
+    assert "--skip-list" in written["text"]
+    assert config.completed_list_path in written["text"]

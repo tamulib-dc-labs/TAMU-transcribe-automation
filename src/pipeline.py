@@ -62,6 +62,9 @@ class TranscriptionPipeline:
         if self.config.resolved_source == "json" and not self._prepare_config_repo():
             return 1
 
+        # What has already been transcribed, according to the durable record.
+        self._collect_completed()
+
         # Step 4: Submit SLURM job
         job_id = self._submit_slurm_job()
         
@@ -197,6 +200,57 @@ class TranscriptionPipeline:
         )
         return True
 
+    def _collect_completed(self) -> int:
+        """List interviews that already have a transcript in the GitHub repo.
+
+        data/oral_output lives on /scratch, which is purged periodically, so it
+        is a cache rather than a record. The transcripts repository is the
+        record. Without this check a purge means re-transcribing and
+        re-uploading the whole collection.
+
+        Writes the ids to data/completed.json for the job to read. Never fatal:
+        if the repo cannot be reached, the run proceeds using the local folder
+        alone and may redo some work.
+        """
+        completed_list = Path(self.config.completed_list_path)
+        completed_list.parent.mkdir(parents=True, exist_ok=True)
+
+        if not self.config.check_transcripts_repo:
+            completed_list.write_text("[]", encoding="utf-8")
+            return 0
+
+        Logger.log_step(5, "Check which interviews are already transcribed", "STARTED")
+        try:
+            uploader = GitUploader(
+                source_folder=self.config.oral_output_path,
+                repo_folder=self.config.git_repo_path,
+                owner=self.config.git_owner,
+                repo_name=self.config.git_repo_name,
+                username=self.config.git_username,
+                token=self.config.get_git_token(),
+            )
+            if not uploader.setup_repository():
+                raise RuntimeError("could not clone or update the transcripts repository")
+
+            done = sorted(
+                path.stem
+                for path in Path(self.config.git_repo_path, "json").glob("*.json")
+            )
+        except Exception as exc:  # noqa: BLE001 - a slow start beats a failed run
+            Logger.log_warning(
+                f"Could not read the transcripts repository ({exc}). Continuing with "
+                "the local output folder only - some interviews may be redone."
+            )
+            completed_list.write_text("[]", encoding="utf-8")
+            return 0
+
+        completed_list.write_text(json.dumps(done, indent=2), encoding="utf-8")
+        Logger.log_step(
+            5, f"{len(done)} interview(s) already transcribed in {self.config.git_repo_name}",
+            "COMPLETED",
+        )
+        return len(done)
+
     def _submit_slurm_job(self) -> str:
         """Inject paths and submit SLURM job."""
         Logger.log_step(8, "Update and submit SLURM job", "STARTED")
@@ -228,7 +282,7 @@ class TranscriptionPipeline:
         source = self.config.resolved_source
         slurm_content = slurm_content.replace("{{SOURCE}}", source)
 
-        fill_args = []
+        fill_args = [f'--skip-list "{self.config.completed_list_path}"']
         if source == "json":
             # The list was read on the login node; the job just enumerates it.
             fill_args.append(f'--config-json "{self.config.work_list_path}"')

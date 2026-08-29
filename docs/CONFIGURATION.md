@@ -109,6 +109,18 @@ tape hiss is the case where it might.
 | `deadline_minutes` | `2820` (47 h) | Workers stop taking new work this far into the job |
 | `max_files` | `0` | Cap interviews per run. `0` = no cap. Useful for a small test |
 
+## Not redoing finished work
+
+| Setting | Default | Notes |
+|---|---|---|
+| `check_transcripts_repo` | `True` | Before queueing, check the transcripts repo for interviews that already have a JSON |
+
+`/scratch` is purged periodically, so `data/oral_output` is a cache, not a
+record. The GitHub transcripts repository is the record. Leave this on — with it
+off, a purge means transcribing and uploading the whole collection again.
+
+---
+
 ## Where the audio comes from
 
 | Setting | Default | Notes |

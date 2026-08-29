@@ -259,6 +259,20 @@ picked up next time.
 
 ---
 
+## It is re-transcribing things I already did
+
+Check the start of the log:
+
+```
+[5] 128 interview(s) already transcribed in edge-grant-json-and-vtts - COMPLETED
+```
+
+If that number is 0 or the step warned, the transcripts repository could not be
+read, so only the local `data/oral_output` folder was consulted — and `/scratch`
+gets purged. Check `git_token`, `git_owner` and `git_repo_name`, then run again.
+
+---
+
 ## Does re-running delete my transcripts?
 
 No. `run_pipeline.py` and `sbatch config/run.slurm` both leave the output folder

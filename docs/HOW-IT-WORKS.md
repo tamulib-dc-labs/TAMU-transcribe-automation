@@ -51,6 +51,23 @@ This step is **idempotent** — running it twice changes nothing. That is why
 every one of the four jobs runs it at startup: whichever gets there first fills
 the queue, and the others find it already done. No coordination needed.
 
+### What counts as "already done"
+
+Three checks, in order:
+
+1. **The transcripts repository.** Before submitting, the login node clones or
+   updates `edge-grant-json-and-vtts` and lists what already has a JSON there.
+2. **The reviewer repo's `config.json`** — json mode only. Names listed there
+   are treated as finished.
+3. **The local output folder**, `data/oral_output/json/`.
+
+The first check matters because **`/scratch` is purged periodically**. The local
+folder is a cache; the GitHub repository is the record. Without check 1, a purge
+would mean re-transcribing and re-uploading the entire collection.
+
+If the repository cannot be reached the run continues on checks 2 and 3 alone —
+some work may be redone, which is better than refusing to start.
+
 ---
 
 ## Step 2 — doing the work
@@ -219,7 +236,7 @@ machine where everything is installed. It fails later, on the cluster.
 ## Tests
 
 ```bash
-pytest -q          # 239 tests, no GPU, no weights, no network
+pytest -q          # 245 tests, no GPU, no weights, no network
 ```
 
 The models are stubbed, so what is tested is everything around them: the queue

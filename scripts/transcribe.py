@@ -252,6 +252,9 @@ def build_parser() -> argparse.ArgumentParser:
                       help="reviewer-repo config file, for --source json")
     fill.add_argument("--max-files", type=int, default=0,
                       help="cap how many interviews are queued (0 = no cap)")
+    fill.add_argument("--skip-list", default=None,
+                      help="JSON list of interview ids already transcribed "
+                           "elsewhere, e.g. in the transcripts repository")
 
     status = sub.add_parser("status", help="show queue counts")
     status.add_argument("--queue", required=True)
@@ -339,17 +342,34 @@ def _fill(args) -> int:
     queue = FileWorkQueue(args.queue)
     found = _enumerate(args)
 
-    pending = [p for p in found if not already_done(p["id"], args.output)]
+    # The local output folder is a cache on scratch; the skip list carries what
+    # the durable record (the transcripts repo) already holds.
+    skip = _load_skip_list(args.skip_list)
+    pending = [
+        p for p in found
+        if p["id"] not in skip and not already_done(p["id"], args.output)
+    ]
     if args.max_files:
         pending = pending[: args.max_files]
 
     added = queue.submit(pending)
     print(
-        f"found {len(found)} interview(s), {len(found) - len(pending)} already done, "
-        f"{added} newly queued"
+        f"found {len(found)} interview(s), {len(found) - len(pending)} already done "
+        f"({len(skip)} from the transcripts repo), {added} newly queued"
     )
     print(json.dumps(queue.counts(), indent=2))
     return 0
+
+
+def _load_skip_list(path) -> set:
+    """Interview ids already transcribed, per the durable record."""
+    if not path or not Path(path).exists():
+        return set()
+    try:
+        return {str(i) for i in json.loads(Path(path).read_text(encoding="utf-8"))}
+    except (OSError, ValueError) as exc:
+        log.warning("could not read skip list %s: %s", path, exc)
+        return set()
 
 
 def _enumerate(args) -> list:

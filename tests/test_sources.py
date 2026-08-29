@@ -206,3 +206,62 @@ class _Result:
     def __init__(self, returncode, stderr):
         self.returncode = returncode
         self.stderr = stderr
+
+
+# ----------------------------------------------- fill honours the skip list
+
+
+def load_fill(tmp_path):
+    import importlib.util, sys
+    from pathlib import Path as P
+
+    root = P(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("transcribe", root / "scripts" / "transcribe.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["transcribe"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_fill_skips_ids_listed_as_done_elsewhere(tmp_path):
+    """A purged scratch must not mean re-transcribing the whole collection."""
+    import json as _json
+
+    module = load_fill(tmp_path)
+    audio = tmp_path / "in"
+    audio.mkdir()
+    for name in ("iv_001.mp3", "iv_002.mp3", "iv_003.mp3"):
+        (audio / name).write_bytes(b"x")
+
+    skip = tmp_path / "completed.json"
+    skip.write_text(_json.dumps(["iv_001", "iv_003"]), encoding="utf-8")
+
+    args = module.build_parser().parse_args([
+        "fill", "--queue", str(tmp_path / "q"), "--output", str(tmp_path / "out"),
+        "--source", "local", "--input", str(audio), "--skip-list", str(skip),
+    ])
+    module._fill(args)
+
+    from src.asr.workqueue import PENDING, FileWorkQueue
+    queued = [t.id for t in FileWorkQueue(tmp_path / "q").tasks(PENDING)]
+    assert queued == ["iv_002"]
+
+
+def test_a_missing_or_broken_skip_list_is_not_fatal(tmp_path):
+    module = load_fill(tmp_path)
+    audio = tmp_path / "in"
+    audio.mkdir()
+    (audio / "iv_001.mp3").write_bytes(b"x")
+
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+
+    for skip in (str(tmp_path / "nope.json"), str(broken)):
+        queue = tmp_path / f"q{hash(skip) % 99}"
+        args = module.build_parser().parse_args([
+            "fill", "--queue", str(queue), "--output", str(tmp_path / "out"),
+            "--source", "local", "--input", str(audio), "--skip-list", skip,
+        ])
+        module._fill(args)
+        from src.asr.workqueue import PENDING, FileWorkQueue
+        assert [t.id for t in FileWorkQueue(queue).tasks(PENDING)] == ["iv_001"]

@@ -66,6 +66,12 @@ class PipelineConfig:
     output_config_path: str = "public/config.json"  # Output config to update in reviewer repo
     max_json_files: int = 20  # Maximum number of files to process from JSON (0 = no limit)
     
+    #: Before queueing, check the transcripts repository for interviews that
+    #: already have a JSON there. /scratch is purged periodically, so the local
+    #: output folder is a cache, not a record - without this, a purge means the
+    #: whole collection is transcribed and uploaded again.
+    check_transcripts_repo: bool = True
+
     # --- Network on compute nodes ---
     #: Grace compute nodes have no direct internet, but HPRC runs an HTTP proxy
     #: reachable from them. Loading the WebProxy module sets http_proxy and
@@ -153,6 +159,15 @@ class PipelineConfig:
     def resolved_input_dir(self) -> str:
         """Folder for source=local."""
         return self.input_dir or self.oral_input_path
+
+    @property
+    def completed_list_path(self) -> str:
+        """Interview ids that already have a transcript in the GitHub repo.
+
+        Written on the login node, read by the job, so a purged scratch does
+        not cause everything to be redone.
+        """
+        return os.path.join(self.data_dir, "completed.json")
 
     @property
     def work_list_path(self) -> str:
