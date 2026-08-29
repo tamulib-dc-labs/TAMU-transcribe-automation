@@ -206,7 +206,7 @@ machine where everything is installed. It fails later, on the cluster.
 ## Tests
 
 ```bash
-pytest -q          # 190 tests, no GPU, no weights, no network
+pytest -q          # 200 tests, no GPU, no weights, no network
 ```
 
 The models are stubbed, so what is tested is everything around them: the queue
