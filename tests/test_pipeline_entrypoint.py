@@ -192,3 +192,149 @@ def test_every_slurm_placeholder_is_filled(config, tmp_path):
 
     leftover = set(re.findall(r"\{\{[A-Z_]+\}\}", written["text"]))
     assert not leftover, f"unfilled placeholders: {sorted(leftover)} of {sorted(placeholders)}"
+
+
+# ------------------------------------------------------------- from_json mode
+
+
+REVIEWER_CONFIG = [
+    {"name": "02_00113",
+     "audio": "https://kaltura/02_00113-a_01-medium.mp4/index.m3u8",
+     "url": "https://raw.githubusercontent.com/org/repo/main/json/02_00113.json",
+     "vtt": "https://raw.githubusercontent.com/org/repo/main/vtts/02_00113.vtt"},
+    {"name": "02_00114",
+     "audio": "https://kaltura/02_00114-a_01-medium.mp4/index.m3u8",
+     "url": "", "vtt": ""},
+]
+
+
+class FakeConfigRepo:
+    """Stands in for the reviewer repository."""
+
+    def __init__(self, entries=None, ok=True):
+        self.entries = REVIEWER_CONFIG if entries is None else entries
+        self.ok = ok
+
+    def setup_repository(self):
+        return self.ok
+
+    def read_config_to_process(self):
+        return list(self.entries)
+
+
+def prepared(config, tmp_path, monkeypatch, repo=None):
+    """Run _prepare_config_repo with the reviewer repo stubbed out."""
+    import src.pipeline as pipeline_module
+    from src.pipeline import TranscriptionPipeline
+
+    config.working_dir = str(tmp_path)
+    config.from_json = True
+    config.git_token = "fake-token"
+    monkeypatch.setattr(
+        pipeline_module, "ConfigRepoManager", lambda **kw: repo or FakeConfigRepo()
+    )
+
+    pipeline = TranscriptionPipeline()
+    return pipeline, pipeline._prepare_config_repo()
+
+
+def test_from_json_writes_a_work_list_the_job_can_read(config, tmp_path, monkeypatch):
+    import json
+
+    pipeline, ok = prepared(config, tmp_path, monkeypatch)
+
+    assert ok is True
+    written = json.loads(Path(config.work_list_path).read_text(encoding="utf-8"))
+    assert [e["name"] for e in written] == ["02_00113", "02_00114"]
+    assert all(e["audio"].startswith("https://kaltura") for e in written)
+
+
+def test_the_work_list_feeds_straight_into_the_queue(config, tmp_path, monkeypatch):
+    """End to end: reviewer config -> work list -> queue references."""
+    import json
+
+    from src.asr.sources import URL, enumerate_json
+
+    prepared(config, tmp_path, monkeypatch)
+    entries = json.loads(Path(config.work_list_path).read_text(encoding="utf-8"))
+    queued = enumerate_json(entries)
+
+    assert len(queued) == 2
+    assert all(q["kind"] == URL for q in queued)
+    assert queued[0]["id"] == "02_00113"
+    # the audio, not the transcript link
+    assert queued[0]["url"].startswith("https://kaltura")
+
+
+def test_max_files_limits_what_is_queued(config, tmp_path, monkeypatch):
+    import json
+
+    config.max_files = 1
+    prepared(config, tmp_path, monkeypatch)
+
+    assert len(json.loads(Path(config.work_list_path).read_text(encoding="utf-8"))) == 1
+
+
+def test_output_names_are_predictable_from_the_config(config, tmp_path, monkeypatch):
+    """No rename step: the transcript is named after the entry's `name`."""
+    from src.asr.sources import enumerate_json, slug
+
+    pipeline, _ = prepared(config, tmp_path, monkeypatch)
+
+    for entry, queued in zip(pipeline._processed_entries, enumerate_json(REVIEWER_CONFIG)):
+        assert entry["_folder_name"] == slug(entry["name"]) == queued["id"]
+
+
+def test_a_failed_clone_stops_the_run(config, tmp_path, monkeypatch):
+    pipeline, ok = prepared(config, tmp_path, monkeypatch, repo=FakeConfigRepo(ok=False))
+    assert ok is False
+
+
+def test_an_empty_config_stops_the_run(config, tmp_path, monkeypatch):
+    pipeline, ok = prepared(config, tmp_path, monkeypatch, repo=FakeConfigRepo(entries=[]))
+    assert ok is False
+
+
+def test_from_json_run_aborts_before_submitting_when_there_is_no_work(
+    config, tmp_path, monkeypatch
+):
+    import src.pipeline as pipeline_module
+    from src.pipeline import TranscriptionPipeline
+
+    config.working_dir = str(tmp_path)
+    config.from_json = True
+    config.git_token = "fake-token"
+    monkeypatch.setattr(
+        pipeline_module, "ConfigRepoManager", lambda **kw: FakeConfigRepo(entries=[])
+    )
+    monkeypatch.setattr(TranscriptionPipeline, "_load_modules", lambda self: None)
+    monkeypatch.setattr(TranscriptionPipeline, "_setup_python_environment", lambda self: None)
+
+    submitted = []
+    monkeypatch.setattr(
+        TranscriptionPipeline, "_submit_slurm_job", lambda self: submitted.append(1) or "1"
+    )
+
+    assert TranscriptionPipeline().run() == 1
+    assert submitted == [], "submitted a job with nothing to do"
+
+
+def test_the_slurm_job_is_pointed_at_the_work_list(config, tmp_path, monkeypatch):
+    import src.pipeline as pipeline_module
+    from src.pipeline import TranscriptionPipeline
+
+    template = (REPO / "config" / "run.slurm").read_text(encoding="utf-8")
+    config.working_dir = str(tmp_path)
+    config.from_json = True
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "run.slurm").write_text(template, encoding="utf-8")
+
+    pipeline = TranscriptionPipeline()
+    written = {}
+    pipeline.command_runner.submit_slurm_job = lambda path: written.setdefault(
+        "text", Path(path).read_text(encoding="utf-8")
+    ) and "1"
+    pipeline._submit_slurm_job()
+
+    assert "--source json" in written["text"]
+    assert config.work_list_path in written["text"]

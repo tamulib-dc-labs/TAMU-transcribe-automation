@@ -55,8 +55,8 @@ def test_a_missing_local_file_raises(tmp_path):
 
 def test_enumerate_json_records_urls_without_downloading():
     entries = [
-        {"name": "02_00113", "audio_url": "https://h/a/02_00113-a_01-medium.mp4/index.m3u8"},
-        {"name": "02_00114", "audio_url": "https://h/b/plain.mp3"},
+        {"name": "02_00113", "audio": "https://h/a/02_00113-a_01-medium.mp4/index.m3u8"},
+        {"name": "02_00114", "audio": "https://h/b/plain.mp3"},
     ]
     found = sources.enumerate_json(entries)
 
@@ -67,8 +67,33 @@ def test_enumerate_json_records_urls_without_downloading():
 
 
 def test_enumerate_json_skips_entries_missing_a_url():
-    found = sources.enumerate_json([{"name": "x"}, {"audio_url": "https://h/a.mp3"}])
+    found = sources.enumerate_json([{"name": "x"}, {"audio": "https://h/a.mp3"}])
     assert found == []
+
+
+def test_the_url_field_is_never_treated_as_audio():
+    """In this config `url` is the transcript link, not the recording.
+
+    Downloading it would fetch a JSON file and hand it to the ASR model.
+    """
+    entries = [{
+        "name": "02_00113",
+        "audio": "https://media/02_00113.mp4/index.m3u8",
+        "url": "https://raw.githubusercontent.com/org/repo/main/json/02_00113.json",
+        "vtt": "https://raw.githubusercontent.com/org/repo/main/vtts/02_00113.vtt",
+    }]
+    found = sources.enumerate_json(entries)
+
+    assert len(found) == 1
+    assert found[0]["url"] == "https://media/02_00113.mp4/index.m3u8"
+    assert "githubusercontent" not in found[0]["url"]
+
+
+def test_an_entry_with_only_a_transcript_url_is_skipped():
+    """No `audio` field means there is nothing to transcribe."""
+    assert sources.enumerate_json([
+        {"name": "x", "url": "https://h/x.json", "vtt": "https://h/x.vtt"}
+    ]) == []
 
 
 def test_urls_are_fetched_through_the_proxy(tmp_path, monkeypatch):

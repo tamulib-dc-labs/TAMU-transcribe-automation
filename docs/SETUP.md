@@ -55,7 +55,7 @@ Everything from here lives under that folder.
 ## Step 3 — Get the code
 
 ```bash
-git clone https://github.com/tamulib-dc-labs/WhisperX-transcribe-automation.git repo
+git clone https://github.com/tamulib-dc-labs/TAMU-transcribe-automation.git repo
 cd repo
 git checkout v3.0
 ```
@@ -121,7 +121,7 @@ pip install pytest
 pytest -q
 ```
 
-You should see `200 passed`. These do not use a GPU or download anything, so
+You should see `210 passed`. These do not use a GPU or download anything, so
 they are safe to run on a login node. If they pass, the code is installed
 correctly.
 

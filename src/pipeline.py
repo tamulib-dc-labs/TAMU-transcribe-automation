@@ -11,16 +11,17 @@ run by scripts/transcribe.py inside the SLURM job.
 import os
 import sys
 import time
+import json
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Any
 
 from src.config import get_config
 from src.utils.file_manager import FileManager, CommandRunner
+from src.asr.sources import slug
 from src.utils.logger import Logger
 from src.git.uploader import GitUploader
 from src.git.config_repo import ConfigRepoManager
-from src.utils.json_downloader import JsonAudioDownloader
 
 
 class TranscriptionPipeline:
@@ -52,9 +53,14 @@ class TranscriptionPipeline:
         # Step 3: Prepare directories
         self._prepare_directories()
         
-        # Audio download, model download and queue filling all happen INSIDE
-        # the SLURM job now - compute nodes reach the network through WebProxy,
-        # so nothing needs staging from a login node first.
+        # Audio and model downloads happen INSIDE the SLURM job - compute nodes
+        # reach the network through WebProxy, so nothing is staged here.
+        #
+        # from_json mode is the one exception: the list of interviews lives in
+        # a private GitHub repo, so it is cloned here and written out as a plain
+        # file the job can read. Still no audio - just the work list.
+        if self.config.from_json and not self._prepare_config_repo():
+            return 1
 
         # Step 4: Submit SLURM job
         job_id = self._submit_slurm_job()
@@ -65,10 +71,6 @@ class TranscriptionPipeline:
 
         # Step 5: Monitor job
         self._monitor_slurm_job(job_id)
-
-        # Step 5.5: Rename output files for from_json mode
-        if self.config.from_json:
-            self._rename_output_files()
 
         if self.skip_upload:
             Logger.log_info(
@@ -147,6 +149,54 @@ class TranscriptionPipeline:
         Logger.log_step(3, "Prepared working directories", "COMPLETED")
     
 
+    def _prepare_config_repo(self) -> bool:
+        """from_json mode: fetch the work list from the reviewer repo.
+
+        Clones (or updates) the reviewer repository, reads
+        config-to-process.json, drops anything already transcribed, and writes
+        what is left to a plain file for the SLURM job to enumerate.
+
+        No audio is downloaded here - each worker fetches its own interview.
+        """
+        Logger.log_step(4, "Read work list from reviewer repo", "STARTED")
+
+        self._config_repo_manager = ConfigRepoManager(
+            repo_folder=self.config.config_repo_path,
+            owner=self.config.git_owner,
+            repo_name=self.config.config_repo_name,
+            username=self.config.git_username,
+            token=self.config.get_git_token(),
+            config_json_path=self.config.config_json_path,
+            output_config_path=self.config.output_config_path,
+        )
+
+        if not self._config_repo_manager.setup_repository():
+            Logger.log_error("Could not clone or update the reviewer repository")
+            return False
+
+        entries = self._config_repo_manager.read_config_to_process()
+        if not entries:
+            Logger.log_warning("Nothing to process in config-to-process.json")
+            return False
+
+        if self.config.max_files:
+            entries = entries[: self.config.max_files]
+
+        # The output files are named after the entry's `name`, so record that
+        # here for the upload step to match them up afterwards.
+        for entry in entries:
+            entry["_folder_name"] = slug(entry.get("name", ""))
+        self._processed_entries = entries
+
+        work_list = Path(self.config.work_list_path)
+        work_list.parent.mkdir(parents=True, exist_ok=True)
+        work_list.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+        Logger.log_step(
+            4, f"Queued {len(entries)} interview(s) from the reviewer repo", "COMPLETED"
+        )
+        return True
+
     def _submit_slurm_job(self) -> str:
         """Inject paths and submit SLURM job."""
         Logger.log_step(8, "Update and submit SLURM job", "STARTED")
@@ -175,9 +225,10 @@ class TranscriptionPipeline:
         )
         fill_args = ""
         if self.config.from_json:
-            fill_args = f'--config-json "{self.config.local_config_json}"'
-        if self.config.max_files:
-            fill_args += f" --max-files {self.config.max_files}"
+            fill_args = f'--config-json "{self.config.work_list_path}"'
+        elif self.config.max_files:
+            # In json mode the list is already trimmed; here the job trims it.
+            fill_args = f"--max-files {self.config.max_files}"
         slurm_content = slurm_content.replace("{{FILL_ARGS}}", fill_args.strip())
 
         # Optional worker flags, assembled from config.
@@ -303,53 +354,3 @@ class TranscriptionPipeline:
         
         Logger.log_step(11, "Update config.json in reviewer repo", "COMPLETED")
     
-    def _rename_output_files(self):
-        """Rename output files from audio filename to folder name (from_json mode only).
-        
-        This ensures the JSON/VTT files use the 'name' field from config instead of
-        the audio filename (which may include qualifiers like '-medium').
-        """
-        Logger.log_step("8.5", "Renaming output files to use folder names", "STARTED")
-        
-        if not self._processed_entries:
-            Logger.log_warning("No processed entries for renaming")
-            return
-        
-        json_dir = os.path.join(self.config.oral_output_path, "json")
-        vtt_dir = os.path.join(self.config.oral_output_path, "vtts")
-        
-        renamed_count = 0
-        
-        for entry in self._processed_entries:
-            folder_name = entry.get("_folder_name", "")  # This is the 'name' field
-            audio_filename = entry.get("_audio_filename", "")
-            
-            if not folder_name or not audio_filename:
-                continue
-            
-            # Get the base names
-            audio_base = os.path.splitext(audio_filename)[0]  # e.g., "02_00113-a_01-medium"
-            target_base = folder_name  # e.g., "02_00113-a_01"
-            
-            # Skip if they're the same
-            if audio_base == target_base:
-                continue
-            
-            # Rename JSON file
-            old_json = os.path.join(json_dir, f"{audio_base}.json")
-            new_json = os.path.join(json_dir, f"{target_base}.json")
-            if os.path.exists(old_json) and not os.path.exists(new_json):
-                os.rename(old_json, new_json)
-                Logger.log_info(f"Renamed: {audio_base}.json -> {target_base}.json")
-                renamed_count += 1
-            
-            # Rename VTT file
-            old_vtt = os.path.join(vtt_dir, f"{audio_base}.vtt")
-            new_vtt = os.path.join(vtt_dir, f"{target_base}.vtt")
-            if os.path.exists(old_vtt) and not os.path.exists(new_vtt):
-                os.rename(old_vtt, new_vtt)
-                Logger.log_info(f"Renamed: {audio_base}.vtt -> {target_base}.vtt")
-                renamed_count += 1
-        
-        Logger.log_step("8.5", f"Renamed {renamed_count} output files", "COMPLETED")
-

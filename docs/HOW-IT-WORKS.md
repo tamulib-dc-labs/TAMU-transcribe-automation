@@ -34,6 +34,19 @@ Each file is a **reference**, not audio:
 Three kinds: `local` (already on disk), `url` (downloadable), `smb` (the file
 share).
 
+**In `--from-json` mode there is one extra step first.** The list of interviews
+lives in a private GitHub repo, so `run_pipeline.py` clones it on the login
+node, drops anything already transcribed, and writes what is left to
+`data/work_list.json`. The job reads that file. Still no audio — only the list.
+
+Each entry's audio comes from its **`audio`** field. Note that these entries
+also have a `url` field, which is the *transcript* link the reviewer app shows
+— not the recording. Using it would download a JSON file and hand it to the
+speech model.
+
+Output files are named after the entry's `name`, so you can predict a
+transcript's filename from the config without looking at the audio.
+
 This step is **idempotent** — running it twice changes nothing. That is why
 every one of the four jobs runs it at startup: whichever gets there first fills
 the queue, and the others find it already done. No coordination needed.
@@ -206,7 +219,7 @@ machine where everything is installed. It fails later, on the cluster.
 ## Tests
 
 ```bash
-pytest -q          # 200 tests, no GPU, no weights, no network
+pytest -q          # 210 tests, no GPU, no weights, no network
 ```
 
 The models are stubbed, so what is tested is everything around them: the queue

@@ -77,6 +77,25 @@ tape hiss is the case where it might.
 | `deadline_minutes` | `2820` (47 h) | Workers stop taking new work this far into the job |
 | `max_files` | `0` | Cap interviews per run. `0` = no cap. Useful for a small test |
 
+## Reading the list from the reviewer app
+
+Set `from_json = True` (or pass `--from-json`) and the interviews come from the
+reviewer repo's `config-to-process.json` instead of the tracking spreadsheet.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `from_json` | `False` | Take the work list from the reviewer repo |
+| `config_repo_name` | `"edge-grant-reviewer"` | The repo holding the list |
+| `config_json_path` | `"public/config-to-process.json"` | The list, inside that repo |
+| `output_config_path` | `"public/config.json"` | Updated with transcript links after a run |
+
+The repo is cloned on the login node — it is private, so the job cannot read it
+directly. Entries already transcribed are dropped, and the rest are written to
+`data/work_list.json` for the job.
+
+Each entry needs a **`name`** and an **`audio`** URL. Transcripts are named
+after `name`, so `02_00113` produces `02_00113.json` and `02_00113.vtt`.
+
 **`lease_seconds` must be longer than your slowest interview.** If a file takes
 2 hours and the lease is 90 minutes, another worker will assume the first one
 died and start the same file again. Raise it if your recordings are long.

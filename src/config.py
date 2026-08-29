@@ -131,8 +131,17 @@ class PipelineConfig:
     
     @property
     def local_config_json(self) -> str:
-        """Where the reviewer repo's config JSON lands once cloned locally."""
+        """The reviewer repo's config file, in the cloned repo."""
         return os.path.join(self.config_repo_path, self.config_json_path)
+
+    @property
+    def work_list_path(self) -> str:
+        """The interviews this run should do, written out for the SLURM job.
+
+        In from_json mode the list comes from a private repo, so it is read on
+        the login node and written here as a plain file the job can read.
+        """
+        return os.path.join(self.data_dir, "work_list.json")
 
     @property
     def config_repo_path(self) -> str:

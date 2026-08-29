@@ -66,14 +66,20 @@ def enumerate_local(root: str | Path) -> list[dict[str, Any]]:
 def enumerate_json(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Audio referenced by the reviewer repo's config JSON.
 
-    Each entry carries a streaming URL; nothing is downloaded here.
+    The audio lives in the ``audio`` field. Note that these entries also carry a
+    ``url`` field - that is the *transcript* URL the reviewer app links to, not
+    the recording - so it must never be used as an audio source.
+
+    Nothing is downloaded here; each entry becomes a reference in the queue.
     """
     out: list[dict[str, Any]] = []
     for entry in entries:
-        url = entry.get("audio_url") or entry.get("url")
+        url = entry.get("audio") or entry.get("audio_url")
         name = entry.get("name") or entry.get("id")
         if not url or not name:
-            log.warning("skipping config entry without a url or name: %r", entry)
+            log.warning(
+                "skipping config entry with no 'audio' or no 'name': %r", entry
+            )
             continue
         out.append(
             {
@@ -268,8 +274,14 @@ def _is_stream(url: str) -> bool:
     return url.endswith((".m3u8", ".mpd")) or "/index.m3u8" in url
 
 
-def _slug(value: str) -> str:
+def slug(value: str) -> str:
+    """Filesystem-safe id. Output files are named with this, so the caller can
+    predict a transcript's filename from a config entry's ``name``."""
     return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in str(value))[:180]
+
+
+#: Kept as an alias so internal call sites read the same as before.
+_slug = slug
 
 
 __all__ = [
@@ -284,4 +296,5 @@ __all__ = [
     "fetch",
     "folders_from_sheet",
     "is_temporary",
+    "slug",
 ]
