@@ -59,7 +59,7 @@ class TranscriptionPipeline:
         # from_json mode is the one exception: the list of interviews lives in
         # a private GitHub repo, so it is cloned here and written out as a plain
         # file the job can read. Still no audio - just the work list.
-        if self.config.from_json and not self._prepare_config_repo():
+        if self.config.resolved_source == "json" and not self._prepare_config_repo():
             return 1
 
         # Step 4: Submit SLURM job
@@ -215,21 +215,29 @@ class TranscriptionPipeline:
         slurm_content = slurm_content.replace("{{DIARIZATION_MODEL}}", self.config.diarization_model)
         slurm_content = slurm_content.replace("{{DEADLINE_MINUTES}}", str(self.config.deadline_minutes))
         slurm_content = slurm_content.replace("{{LEASE_SECONDS}}", str(self.config.lease_seconds))
+        slurm_content = slurm_content.replace("{{WORDS_DEVICE}}", self.config.words_device)
+        slurm_content = slurm_content.replace("{{TURNS_DEVICE}}", self.config.turns_device)
+        slurm_content = slurm_content.replace("{{MAX_ATTEMPTS}}", str(self.config.max_attempts))
+        slurm_content = slurm_content.replace("{{MAX_LINE_WIDTH}}", str(self.config.max_line_width))
+        slurm_content = slurm_content.replace("{{MAX_LINE_COUNT}}", str(self.config.max_line_count))
         slurm_content = slurm_content.replace(
             "{{WEB_PROXY}}",
             "ml WebProxy" if self.config.use_web_proxy else "# WebProxy disabled in config",
         )
         slurm_content = slurm_content.replace("{{SMB_USERNAME}}", self.config.smb_username)
-        slurm_content = slurm_content.replace(
-            "{{SOURCE}}", "json" if self.config.from_json else "smb"
-        )
-        fill_args = ""
-        if self.config.from_json:
-            fill_args = f'--config-json "{self.config.work_list_path}"'
-        elif self.config.max_files:
-            # In json mode the list is already trimmed; here the job trims it.
-            fill_args = f"--max-files {self.config.max_files}"
-        slurm_content = slurm_content.replace("{{FILL_ARGS}}", fill_args.strip())
+        source = self.config.resolved_source
+        slurm_content = slurm_content.replace("{{SOURCE}}", source)
+
+        fill_args = []
+        if source == "json":
+            # The list was read on the login node; the job just enumerates it.
+            fill_args.append(f'--config-json "{self.config.work_list_path}"')
+        else:
+            if source == "local":
+                fill_args.append(f'--input "{self.config.resolved_input_dir}"')
+            if self.config.max_files:
+                fill_args.append(f"--max-files {self.config.max_files}")
+        slurm_content = slurm_content.replace("{{FILL_ARGS}}", " ".join(fill_args))
 
         # Optional worker flags, assembled from config.
         extra = []

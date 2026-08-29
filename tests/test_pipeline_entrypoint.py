@@ -6,6 +6,7 @@ touches Slurm, the network or a GPU - it checks that the pieces fit together.
 """
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -60,14 +61,55 @@ def test_every_cli_flag_maps_to_something_real(entry, config):
         assert (
             flag in constructor
             or flag in settings
-            or flag in {"from_json", "no_diarize", "max_files"}  # mapped by hand
+            or flag in {"from_json", "no_diarize", "max_files", "input"}  # mapped by hand
         ), f"--{flag.replace('_', '-')} goes nowhere"
 
 
 def test_from_json_switches_the_mode(entry, config):
-    entry.main.__globals__  # noqa: B018 - module is importable
     args = entry.build_parser().parse_args(["--from-json"])
     assert args.from_json is True
+
+
+@pytest.mark.parametrize(
+    "argv,expected",
+    [([], "smb"), (["--from-json"], "json"), (["--source", "local"], "local"),
+     (["--source", "json"], "json"), (["--source", "smb"], "smb")],
+)
+def test_the_source_can_be_chosen_from_the_command_line(entry, config, monkeypatch, argv, expected):
+    """SETUP.md and TROUBLESHOOTING.md both tell users to run --source local;
+    it has to be reachable without bypassing this entry point."""
+    from src.pipeline import TranscriptionPipeline
+
+    seen = {}
+    monkeypatch.setattr(
+        TranscriptionPipeline, "run",
+        lambda self: seen.setdefault("source", self.config.resolved_source) and 0 or 0,
+    )
+    monkeypatch.setattr(TranscriptionPipeline, "_prepare_config_repo", lambda self: True)
+    entry.main(argv)
+
+    assert seen["source"] == expected
+
+
+def test_local_source_tells_the_job_where_to_look(config, tmp_path):
+    from src.pipeline import TranscriptionPipeline
+
+    template = (REPO / "config" / "run.slurm").read_text(encoding="utf-8")
+    config.working_dir = str(tmp_path)
+    config.source = "local"
+    config.input_dir = str(tmp_path / "my_audio")
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "run.slurm").write_text(template, encoding="utf-8")
+
+    pipeline = TranscriptionPipeline()
+    written = {}
+    pipeline.command_runner.submit_slurm_job = lambda p: written.setdefault(
+        "text", Path(p).read_text(encoding="utf-8")
+    ) and "1"
+    pipeline._submit_slurm_job()
+
+    assert "--source local" in written["text"]
+    assert str(tmp_path / "my_audio") in written["text"]
 
 
 def test_no_diarize_and_max_files_reach_the_config(entry, config, monkeypatch):
@@ -338,3 +380,73 @@ def test_the_slurm_job_is_pointed_at_the_work_list(config, tmp_path, monkeypatch
 
     assert "--source json" in written["text"]
     assert config.work_list_path in written["text"]
+
+
+# ------------------------------------------- config settings must reach the job
+
+
+@pytest.mark.parametrize(
+    "setting,value,expected",
+    [
+        ("words_device", "cuda:0", "--words-device cuda:0"),
+        ("turns_device", "cuda:0", "--turns-device cuda:0"),
+        ("max_attempts", 7, "--max-attempts 7"),
+        ("max_line_width", 36, "--max-line-width 36"),
+        ("max_line_count", 3, "--max-line-count 3"),
+        ("lease_seconds", 9999, "--lease 9999"),
+        ("deadline_minutes", 120, "--deadline-minutes 120"),
+        ("asr_model", "nvidia/other-asr", "nvidia/other-asr"),
+        ("diarization_model", "nvidia/other-diar", "nvidia/other-diar"),
+    ],
+)
+def test_changing_a_setting_actually_reaches_the_job(
+    config, tmp_path, setting, value, expected
+):
+    """A documented setting that never reaches the worker is a silent lie."""
+    from src.pipeline import TranscriptionPipeline
+
+    template = (REPO / "config" / "run.slurm").read_text(encoding="utf-8")
+    config.working_dir = str(tmp_path)
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "run.slurm").write_text(template, encoding="utf-8")
+    setattr(config, setting, value)
+
+    pipeline = TranscriptionPipeline()
+    written = {}
+    pipeline.command_runner.submit_slurm_job = lambda path: written.setdefault(
+        "text", Path(path).read_text(encoding="utf-8")
+    ) and "1"
+    pipeline._submit_slurm_job()
+
+    assert expected in written["text"], f"config.{setting} never reaches the worker"
+
+
+def test_every_worker_flag_in_the_template_is_one_the_worker_accepts():
+    """A typo in run.slurm would fail only at runtime, on the cluster."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "transcribe", REPO / "scripts" / "transcribe.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["transcribe"] = module
+    spec.loader.exec_module(module)
+
+    template = (REPO / "config" / "run.slurm").read_text(encoding="utf-8")
+    # only the lines invoking the worker, not the #SBATCH directives
+    invocation = template.split("transcribe.py")[1:]
+    used = set()
+    for chunk in invocation:
+        for line in chunk.splitlines():
+            if line.strip().startswith("#"):
+                break
+            used.update(re.findall(r"--[a-z][a-z-]+", line))
+
+    parser = module.build_parser()
+    accepted = set()
+    for action in parser._subparsers._group_actions[0].choices.values():
+        for opt in action._actions:
+            accepted.update(opt.option_strings)
+
+    unknown = used - accepted
+    assert not unknown, f"run.slurm passes flags the worker does not accept: {sorted(unknown)}"

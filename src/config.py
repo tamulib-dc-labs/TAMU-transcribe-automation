@@ -51,6 +51,14 @@ class PipelineConfig:
     #: Cap how many interviews a run queues. 0 = the whole collection.
     max_files: int = 0
 
+    # --- Where the audio comes from ---
+    #: "auto" follows from_json below, for compatibility with v2.0 settings.
+    #: Set it explicitly to pick: "smb" (the file share), "json" (the reviewer
+    #: repo's list), or "local" (audio already staged on scratch).
+    source: str = "auto"
+    #: Folder to read, when source is "local". Defaults to oral_input_path.
+    input_dir: str = ""
+
     # --- From JSON Mode Settings ---
     from_json: bool = False  # Flag to enable JSON-based processing
     config_repo_name: str = "edge-grant-reviewer"  # Reviewer repo name
@@ -133,6 +141,18 @@ class PipelineConfig:
     def local_config_json(self) -> str:
         """The reviewer repo's config file, in the cloned repo."""
         return os.path.join(self.config_repo_path, self.config_json_path)
+
+    @property
+    def resolved_source(self) -> str:
+        """Which enumerator the job should use: smb, json or local."""
+        if self.source and self.source != "auto":
+            return self.source
+        return "json" if self.from_json else "smb"
+
+    @property
+    def resolved_input_dir(self) -> str:
+        """Folder for source=local."""
+        return self.input_dir or self.oral_input_path
 
     @property
     def work_list_path(self) -> str:

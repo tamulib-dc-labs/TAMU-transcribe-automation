@@ -72,8 +72,11 @@ python {{TRANSCRIBE_SCRIPT}} work \
     --scratch      "$TMPDIR/audio" \
     --parakeet-model   "{{ASR_MODEL}}" \
     --sortformer-model "{{DIARIZATION_MODEL}}" \
-    --words-device cuda:0 \
-    --turns-device cuda:1 \
+    --words-device {{WORDS_DEVICE}} \
+    --turns-device {{TURNS_DEVICE}} \
     --deadline-minutes {{DEADLINE_MINUTES}} \
     --lease {{LEASE_SECONDS}} \
+    --max-attempts {{MAX_ATTEMPTS}} \
+    --max-line-width {{MAX_LINE_WIDTH}} \
+    --max-line-count {{MAX_LINE_COUNT}} \
     {{EXTRA_ARGS}}

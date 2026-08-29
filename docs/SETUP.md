@@ -121,7 +121,7 @@ pip install pytest
 pytest -q
 ```
 
-You should see `210 passed`. These do not use a GPU or download anything, so
+You should see `226 passed`. These do not use a GPU or download anything, so
 they are safe to run on a login node. If they pass, the code is installed
 correctly.
 

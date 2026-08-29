@@ -77,6 +77,25 @@ tape hiss is the case where it might.
 | `deadline_minutes` | `2820` (47 h) | Workers stop taking new work this far into the job |
 | `max_files` | `0` | Cap interviews per run. `0` = no cap. Useful for a small test |
 
+## Where the audio comes from
+
+| Setting | Default | Notes |
+|---|---|---|
+| `source` | `"auto"` | `smb`, `json`, or `local`. `auto` follows `from_json` |
+| `input_dir` | `""` | Folder to read with `source = "local"`. Defaults to `data/oral_input` |
+
+Or from the command line:
+
+```bash
+python scripts/run_pipeline.py --source local --input data/oral_input
+python scripts/run_pipeline.py --source json      # same as --from-json
+```
+
+Use `local` for your first test run, and as the fallback if compute nodes
+cannot reach the file share.
+
+---
+
 ## Reading the list from the reviewer app
 
 Set `from_json = True` (or pass `--from-json`) and the interviews come from the

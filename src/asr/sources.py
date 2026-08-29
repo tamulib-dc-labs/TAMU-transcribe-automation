@@ -47,7 +47,8 @@ LOCAL, URL, SMB = "local", "url", "smb"
 #: with ``--source local`` instead - everything else is unchanged.
 SMB_REACHABILITY = "verify from a compute node; WebProxy does not carry port 445"
 
-AUDIO_SUFFIXES = (".mp3", ".wav", ".m4a", ".flac", ".ogg", ".mp4", ".mkv", ".mov")
+#: Single definition, shared with preprocess - two copies would drift apart.
+from .preprocess import AUDIO_EXTENSIONS as AUDIO_SUFFIXES
 
 
 # --------------------------------------------------------------- enumerate
