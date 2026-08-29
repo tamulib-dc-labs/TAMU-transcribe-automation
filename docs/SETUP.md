@@ -121,7 +121,7 @@ pip install pytest
 pytest -q
 ```
 
-You should see `190 passed`. These do not use a GPU or download anything, so
+You should see `200 passed`. These do not use a GPU or download anything, so
 they are safe to run on a login node. If they pass, the code is installed
 correctly.
 
@@ -242,6 +242,18 @@ python repo/scripts/run_pipeline.py
 ```
 
 This submits the job, waits, and uploads results when it is done.
+
+Useful flags:
+
+| Flag | Does |
+|---|---|
+| `--from-json` | Take the list from the reviewer app instead of the spreadsheet |
+| `--max-files 5` | Only do five interviews — good for a first real run |
+| `--skip-upload` | Leave transcripts on disk instead of pushing to GitHub |
+| `--no-diarize` | Words only, no speaker labels |
+
+Re-running is always safe. Interviews that already have a transcript are
+skipped, so nothing is redone and nothing is deleted.
 
 Check on it any time:
 

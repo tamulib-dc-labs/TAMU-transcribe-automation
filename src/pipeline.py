@@ -26,9 +26,10 @@ from src.utils.json_downloader import JsonAudioDownloader
 class TranscriptionPipeline:
     """Main pipeline orchestrator."""
     
-    def __init__(self):
+    def __init__(self, skip_upload: bool = False):
         """Initialize the pipeline with configuration."""
         self.config = get_config()
+        self.skip_upload = skip_upload
         self.file_manager = FileManager()
         self.command_runner = CommandRunner()
         
@@ -58,22 +59,31 @@ class TranscriptionPipeline:
         # Step 4: Submit SLURM job
         job_id = self._submit_slurm_job()
         
-        if job_id:
-            # Step 5: Monitor job
-            self._monitor_slurm_job(job_id)
-            
-            # Step 5.5: Rename output files for from_json mode
-            if self.config.from_json:
-                self._rename_output_files()
-            
+        if not job_id:
+            Logger.log_error("No job was submitted; nothing to wait for")
+            return 1
+
+        # Step 5: Monitor job
+        self._monitor_slurm_job(job_id)
+
+        # Step 5.5: Rename output files for from_json mode
+        if self.config.from_json:
+            self._rename_output_files()
+
+        if self.skip_upload:
+            Logger.log_info(
+                f"--skip-upload: transcripts left in {self.config.oral_output_path}"
+            )
+        else:
             # Step 6: Upload results to GitHub
             self._upload_to_github()
-            
+
             # Step 7: Update config repo (only for from_json mode)
             if self.config.from_json:
                 self._update_config_repo()
-        
+
         Logger.log_info("Pipeline execution completed")
+        return 0
     
     def _load_modules(self):
         """Load required environment modules."""
@@ -117,14 +127,24 @@ class TranscriptionPipeline:
             Logger.log_step(3, "Using existing virtual environment", "COMPLETED")
     
     def _prepare_directories(self):
-        """Clear and prepare input/output directories."""
-        # Clear input directory
-        self.file_manager.clear_directory(self.config.oral_input_path)
-        Logger.log_step(4, f"Cleared {self.config.oral_input_path}", "COMPLETED")
-        
-        # Clear output directory
-        self.file_manager.clear_directory(self.config.oral_output_path)
-        Logger.log_step(5, f"Cleared {self.config.oral_output_path}", "COMPLETED")
+        """Make sure the working directories exist.
+
+        Deliberately does NOT clear them, unlike v2.0. In v3.0 the output
+        directory is what makes a run resumable - `fill` skips any interview
+        that already has a JSON there - and in local mode the input directory
+        holds the audio itself. Wiping either would re-transcribe the whole
+        collection on every run, or delete the source.
+
+        To start over deliberately, remove data/queue and data/oral_output by
+        hand.
+        """
+        for path in (
+            self.config.oral_input_path,
+            self.config.oral_output_path,
+            self.config.queue_path,
+        ):
+            self.file_manager.ensure_directory(path)
+        Logger.log_step(3, "Prepared working directories", "COMPLETED")
     
 
     def _submit_slurm_job(self) -> str:

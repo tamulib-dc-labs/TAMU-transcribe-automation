@@ -254,6 +254,15 @@ picked up next time.
 
 ---
 
+## Does re-running delete my transcripts?
+
+No. `run_pipeline.py` and `sbatch config/run.slurm` both leave the output folder
+alone — it is what tells the pipeline which interviews are already done.
+
+To redo everything on purpose, see below.
+
+---
+
 ## Starting completely over
 
 ```bash
