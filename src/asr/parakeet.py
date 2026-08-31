@@ -240,10 +240,29 @@ def _resolve_device(name: str):
         return None
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     device = torch.device(name)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        log.warning("cuda requested but unavailable; running Parakeet on cpu")
+    if device.type != "cuda":
+        return device
+
+    if not torch.cuda.is_available():
+        log.warning("cuda requested but unavailable; running %s on cpu", "Parakeet")
         return torch.device("cpu")
+
+    # torch.cuda.is_available() is True with a single GPU, so cuda:1 gets this
+    # far and then fails at .to(device). Falling back is much better than the
+    # alternative: the caller treats a load failure as "no speakers" and the
+    # run finishes with labels missing from every transcript.
+    count = torch.cuda.device_count()
+    if device.index is not None and device.index >= count:
+        log.warning(
+            "%s asked for %s but the job was given %d GPU(s); using cuda:0. "
+            "Both models now share one device and will contend rather than "
+            "overlap - check --gres in config/run.slurm.",
+            "Parakeet", name, count,
+        )
+        return torch.device("cuda:0")
+
     return device
 
 
