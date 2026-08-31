@@ -67,24 +67,38 @@ makes an interrupted run safe to re-submit.
 
 ### What counts as "already done"
 
-Two checks:
+**One check.** Two repositories are compared, and nothing else is consulted:
 
-1. **The transcripts repository.** The job lists what already has a JSON in
-   `edge-grant-json-and-vtts` and writes the names to `data/completed.json`.
-2. **The local output folder**, `data/oral_output/json/`.
+```
+edge-grant-reviewer            edge-grant-json-and-vtts
+config-to-process.json    vs   json/*.json
+   what to transcribe            what is transcribed
+                 └── the difference is the work ──┘
+```
 
-The first check matters because **`/scratch` is purged periodically**. The local
-folder is a cache; the GitHub repository is the record. Without check 1, a purge
-would mean re-transcribing and re-uploading the entire collection.
+The job lists the filenames under `json/` in the transcripts repo and writes
+them to `data/completed.json`. Anything in the work list that is not named
+there gets transcribed.
 
-If the repository cannot be reached the run continues on check 2 alone — some
-work may be redone, which is better than refusing to start.
+**`data/oral_output/` is not a check.** It used to be, and that was a bug worth
+remembering. `/scratch` keeps transcripts from earlier runs, so a JSON can sit
+there that the repository does not have — the upload failed, or the transcript
+was bad and got removed from the repo deliberately to force a redo. Either way
+every later run skipped the interview on the strength of the stale local copy,
+and it could never be redone. The folder is a cache; the repository is the
+record; only the record decides.
 
-**The reviewer repo's `config.json` is not one of the checks.** That file is
+The cost is that a run whose upload fails re-transcribes its work next time.
+That is the right way round: redoing work is cheap, losing an interview is not.
+
+**The reviewer repo's `config.json` is not a check either.** That file is
 *written* at the end of a run so the reviewer app has links to the new
 transcripts; it is not a record of what has been transcribed. Reading it to
 decide what to skip made the two jobs of that file contradict each other, and
 made `config.json` unusable as both input and output.
+
+If the transcripts repo cannot be reached, nothing is skipped and the run
+redoes work rather than refusing to start.
 
 ---
 

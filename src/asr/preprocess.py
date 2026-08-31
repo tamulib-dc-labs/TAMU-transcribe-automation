@@ -127,14 +127,8 @@ def _is_within(path: Path, parent: Path) -> bool:
         return False
 
 
-def already_done(audio: str | Path, output_dir: str | Path) -> bool:
-    """True when this file already has a transcript - makes runs resumable."""
-    return (Path(output_dir) / "json" / f"{Path(audio).stem}.json").exists()
-
-
 __all__ = [
     "AUDIO_EXTENSIONS",
-    "already_done",
     "apply_boost",
     "find_audio_files",
     "prepare_audio",

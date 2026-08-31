@@ -15,9 +15,11 @@ milliseconds looking like a success.
 
 What made the queue worth having is kept, because none of it needed a queue:
 
-* **Resumable.** An interview with a JSON already in the output folder, or
-  listed in the skip file from the transcripts repository, is passed over.
-  Being interrupted costs the file in flight and nothing else.
+* **Resumable.** An interview listed in the skip file - built from the
+  transcripts repository before this runs - is passed over. Being interrupted
+  costs the file in flight and nothing else. The local output folder is not
+  consulted: it is a cache on /scratch, and a copy there that never reached
+  the repository would otherwise block the interview from ever being redone.
 * **A deadline.** The worker stops starting new interviews with enough of the
   wall clock left to finish the one in hand, then exits cleanly.
 * **Failures do not stop the run.** A file that cannot be fetched or
@@ -50,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.asr.lines import LineConfig  # noqa: E402
 from src.asr.output import write_outputs  # noqa: E402
 from src.asr.parakeet import DEFAULT_PARAKEET_MODEL, ParakeetConfig  # noqa: E402
-from src.asr.preprocess import already_done, prepare_audio  # noqa: E402
+from src.asr.preprocess import prepare_audio  # noqa: E402
 from src.asr import sources  # noqa: E402
 from src.asr.sortformer import DEFAULT_SORTFORMER_MODEL, SortformerConfig  # noqa: E402
 from src.asr.transcriber import Transcriber, TranscriberConfig  # noqa: E402
@@ -147,9 +149,18 @@ class Worker:
         found = _enumerate(self.args)
         skip = _load_skip_list(self.args.skip_list)
 
+        # Skipping is decided by the transcripts repository alone, via the
+        # skip list the job wrote before this ran.
+        #
+        # The local output folder used to count too, and that is what made an
+        # interview impossible to redo: /scratch keeps a JSON that the repo
+        # does not have - because the upload failed, or because the transcript
+        # was bad and got removed from the repo on purpose - and every later
+        # run skipped it on the strength of the stale local copy. One record
+        # of what is done, and it is the one that is shared.
         todo = []
         for item in found:
-            if item["id"] in skip or already_done(item["id"], self.output):
+            if item["id"] in skip:
                 self.skipped += 1
                 continue
             todo.append(item)
@@ -158,7 +169,8 @@ class Worker:
             todo = todo[: self.args.max_files]
 
         log.info(
-            "%d interview(s) listed, %d already transcribed, %d to do",
+            "%d interview(s) in the work list, %d already in the transcripts "
+            "repo, %d to do",
             len(found), self.skipped, len(todo),
         )
 
