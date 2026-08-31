@@ -188,8 +188,8 @@ read it from there:
 
 ```bash
 # on a login node
-python repo/scripts/transcribe.py fill \
-    --queue  /scratch/user/$USER/asr/data/queue \
+python repo/scripts/transcribe.py run \
+    --output /scratch/user/$USER/asr/data/oral_output \
     --output /scratch/user/$USER/asr/data/oral_output \
     --source local \
     --input  /scratch/user/$USER/asr/data/oral_input
@@ -277,7 +277,7 @@ skipped, so nothing is redone and nothing is deleted.
 Check on it any time:
 
 ```bash
-python repo/scripts/transcribe.py status --queue data/queue --failures
+python repo/scripts/transcribe.py status --output data/oral_output
 ```
 
 ```json
@@ -311,7 +311,7 @@ cannot be submitted directly. `run_pipeline.py` fills it in and writes
 `run_transcribe.slurm` next to it.)
 
 Finished interviews are skipped. Interviews that were half-done when the job
-died are put back in the queue automatically. Nothing is lost and nothing is
+died are simply picked up again. Nothing is lost and nothing is
 transcribed twice.
 
 ---
@@ -319,9 +319,8 @@ transcribed twice.
 ## Retrying failures
 
 ```bash
-python repo/scripts/transcribe.py status  --queue data/queue --failures
-python repo/scripts/transcribe.py requeue --queue data/queue
-sbatch run_transcribe.slurm
+python repo/scripts/transcribe.py status --output data/oral_output
+python repo/scripts/run_pipeline.py --from-json
 ```
 
 ---
@@ -334,9 +333,7 @@ sbatch run_transcribe.slurm
 | `sbatch run_transcribe.slurm` | Re-submit the last filled job |
 | `squeue -u $USER` | Are my jobs running? |
 | `scancel <jobid>` | Stop a job |
-| `transcribe.py status --queue Q` | How far along am I? |
-| `transcribe.py status --queue Q --failures` | What failed and why |
-| `transcribe.py requeue --queue Q` | Try the failures again |
+| `transcribe.py status --output OUT` | How many are transcribed so far |
 | `tail -f transcribe_Out.*` | Live log |
 
 Something not working? → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

@@ -13,7 +13,7 @@ One job does everything. `run_pipeline.py` submits it and exits.
 ```
 run_pipeline.py   login node   →  sbatch, then exit
 
-config/run.slurm  compute node →  1. list the work into queue/pending/
+config/run.slurm  compute node →  1. list the work, skip what is done
                                      (no audio moves)
                                   2. transcribe, one interview at a time
                                   3. push the results, write back the links
@@ -36,7 +36,7 @@ they can do the network steps at all.
 ## Step 1 — listing the work
 
 Reads the tracking spreadsheet (or the reviewer app's JSON list) and writes one
-small file per interview into `data/queue/pending/`.
+list of interviews still to do.
 
 Each file is a **reference**, not audio:
 
@@ -90,9 +90,9 @@ made `config.json` unusable as both input and output.
 
 ## Step 2 — transcribing
 
-`scripts/transcribe.py work`, on a GPU node with two A100s. It loops:
+`scripts/transcribe.py run`, on a GPU node. For each interview in turn:
 
-1. **Claim** the next interview from the queue.
+1. **Take** the next interview on the list.
 2. **Download** just that one file into node-local `$TMPDIR`.
 3. **Transcribe** it — Parakeet and Sortformer, on separate GPUs, at the same time.
 4. **Fuse** their outputs by time.
@@ -103,48 +103,6 @@ Downloading per interview rather than all up front has two consequences worth
 knowing: **disk use depends on the number of workers, not the size of the
 collection**, and a failure part-way through costs one interview instead of the
 whole download phase.
-
----
-
-## The queue
-
-Four folders on `/scratch`:
-
-```
-queue/pending/     waiting
-queue/claimed/     someone is working on it
-queue/done/        finished
-queue/failed/      gave up after 3 tries
-```
-
-That is the entire state of a run. No database, no server.
-
-### Why a queue and not "worker 1 takes files 1–10"
-
-Interviews range from twenty minutes to three hours. Split the list four ways
-and three GPUs finish early while one grinds through the long recordings.
-Taking the next file when you finish the last one keeps everyone busy.
-
-### Why claims expire
-
-A claim carries a deadline (`lease_seconds`). If a job is killed by the time
-limit, its interviews are left *claimed* rather than lost. The next job to start
-notices the expired claims and puts them back.
-
-That is why resuming is just `sbatch` again.
-
-### How two workers never take the same file
-
-Claiming creates a lock file with `O_CREAT | O_EXCL` — an operation that
-succeeds for exactly one caller, on every filesystem Grace uses. Only that
-caller then moves the interview into `claimed/`.
-
-This matters more than it sounds. Two earlier designs let the same interview be
-claimed twice under eight workers — 3% of the time in one, 17% in the other.
-That means two GPUs transcribing the same recording and both writing the same
-output file. If you change `workqueue.py`, this is the property to preserve:
-a claim must be won by exactly one worker, decided by a single atomic
-filesystem operation.
 
 ---
 
@@ -209,7 +167,7 @@ Failures are handled by kind, not uniformly:
 |---|---|
 | Speaker detection fails | The run continues **without speaker labels**. A transcript with no speakers is still useful; no transcript is not |
 | Audio file missing | Failed immediately, not retried — it will never succeed, and retrying wastes GPU time |
-| Anything else | Retried up to `max_attempts`, then moved to `failed/` with the reason |
+| Anything else | Logged with the reason and counted; the run carries on. Re-run to retry it |
 | Worker killed | Its claim expires and another worker picks the interview up |
 
 ---
@@ -219,7 +177,7 @@ Failures are handled by kind, not uniformly:
 ```
 config/run.slurm         the one job, submitted by run_pipeline.py
 scripts/run_job.py       what that job runs: list, transcribe, upload
-scripts/transcribe.py    fill / work / status / requeue
+scripts/transcribe.py    run / status
 scripts/run_pipeline.py  submit, wait, upload
 
 src/asr/sources.py       where audio comes from; fetching one file
@@ -228,7 +186,6 @@ src/asr/sortformer.py    speaker turns
 src/asr/fusion.py        matching words to speakers
 src/asr/lines.py         words → subtitle lines
 src/asr/output.py        writing the JSON and VTT
-src/asr/workqueue.py     claim / lease / reap
 src/asr/preprocess.py    decode and optional noise reduction
 
 src/config.py            every setting
@@ -244,7 +201,7 @@ src/git/, src/utils/     unchanged from v2.0
 the function that needs it.
 
 That keeps the package importable on a login node with no GPU software
-installed, which is what lets `fill`, `status` and `requeue` run there.
+installed, which is what lets `status` run there.
 
 Breaking it does not fail on a machine where everything is installed. It fails
 later, on the cluster — so if you add an import, put it inside the function
@@ -261,7 +218,7 @@ that needs it, not at the top of the module.
 | wav2vec2 forced alignment for word timings | Not needed — Parakeet times its own words |
 | No speaker labels | Sortformer |
 | Download the whole collection, then transcribe | Download one interview at a time, inside the job |
-| Static split of files across GPUs | Shared queue |
+| Static split of files across GPUs | One list, worked through in order |
 | `whisperx`, `ctranslate2`, `nltk`, `langchain` | One package: `nemo_toolkit[asr]` |
 
 Removed along the way: a `torch.load` monkeypatch and a cuDNN library-path fix,

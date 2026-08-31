@@ -19,14 +19,12 @@ from .scoring import score_transcript
 from .sortformer import DEFAULT_SORTFORMER_MODEL, SortformerConfig, SortformerDiarizer
 from .transcriber import Transcriber, TranscriberConfig, transcribe
 from .types import Line, Segment, Transcript, Word
-from .workqueue import FileWorkQueue
 
 __version__ = "3.0.0"
 
 __all__ = [
     "DEFAULT_PARAKEET_MODEL",
     "DEFAULT_SORTFORMER_MODEL",
-    "FileWorkQueue",
     "Line",
     "LineConfig",
     "ParakeetBackend",

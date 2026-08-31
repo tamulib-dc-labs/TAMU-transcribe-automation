@@ -102,10 +102,6 @@ class TranscriptionPipeline:
 
         self._collect_completed()
 
-        if self._fill_queue() != 0:
-            Logger.log_error("Could not build the work queue")
-            return 1
-
         if self._transcribe() != 0:
             Logger.log_error("The transcription step failed")
             return 1
@@ -123,40 +119,23 @@ class TranscriptionPipeline:
         Logger.log_info("Done")
         return 0
 
-    def _fill_queue(self) -> int:
-        """Enumerate the source into the work queue. Moves no audio."""
-        Logger.log_step(1, "List the work", "STARTED")
-
-        command = [
-            sys.executable, self.config.transcribe_script_path, "fill",
-            "--queue", self.config.queue_path,
-            "--output", self.config.oral_output_path,
-            "--source", self.config.resolved_source,
-            "--skip-list", self.config.completed_list_path,
-        ]
-        if self.config.resolved_source == "json":
-            command += ["--config-json", self.config.work_list_path]
-        else:
-            if self.config.resolved_source == "local":
-                command += ["--input", self.config.resolved_input_dir]
-            if self.config.max_files:
-                command += ["--max-files", str(self.config.max_files)]
-
-        code = subprocess.run(command).returncode
-        Logger.log_step(1, "List the work", "COMPLETED" if code == 0 else "FAILED")
-        return code
-
     def _transcribe(self) -> int:
-        """Work the queue until it is empty or the deadline is reached."""
-        Logger.log_step(2, "Transcribe", "STARTED")
+        """List the work and transcribe it. One command, no queue.
+
+        The worker skips anything already in the output folder or named in
+        data/completed.json, so re-running after an interruption picks up
+        where it stopped.
+        """
+        Logger.log_step(1, "Transcribe", "STARTED")
 
         command = [
-            sys.executable, self.config.transcribe_script_path, "work",
-            "--queue", self.config.queue_path,
+            sys.executable, self.config.transcribe_script_path, "run",
             "--output", self.config.oral_output_path,
             "--scratch", os.path.join(
                 os.environ.get("TMPDIR", self.config.data_dir), "audio"
             ),
+            "--source", self.config.resolved_source,
+            "--skip-list", self.config.completed_list_path,
             "--parakeet-model", self.config.asr_model,
             "--sortformer-model", self.config.diarization_model,
             "--long-audio", self.config.long_audio,
@@ -164,11 +143,15 @@ class TranscriptionPipeline:
             "--words-device", self.config.words_device,
             "--turns-device", self.config.turns_device,
             "--deadline-minutes", str(self.config.deadline_minutes),
-            "--lease", str(self.config.lease_seconds),
-            "--max-attempts", str(self.config.max_attempts),
             "--max-line-width", str(self.config.max_line_width),
             "--max-line-count", str(self.config.max_line_count),
         ]
+        if self.config.resolved_source == "json":
+            command += ["--config-json", self.config.work_list_path]
+        elif self.config.resolved_source == "local":
+            command += ["--input", self.config.resolved_input_dir]
+        if self.config.max_files:
+            command += ["--max-files", str(self.config.max_files)]
         if self.config.language:
             command += ["--language", self.config.language]
         if not self.config.diarize:
@@ -179,7 +162,7 @@ class TranscriptionPipeline:
             command.append("--sequential-models")
 
         code = subprocess.run(command).returncode
-        Logger.log_step(2, "Transcribe", "COMPLETED" if code == 0 else "FAILED")
+        Logger.log_step(1, "Transcribe", "COMPLETED" if code == 0 else "FAILED")
         return code
 
     def _prepare_directories(self):
@@ -191,13 +174,11 @@ class TranscriptionPipeline:
         holds the audio itself. Wiping either would re-transcribe the whole
         collection on every run, or delete the source.
 
-        To start over deliberately, remove data/queue and data/oral_output by
-        hand.
+        To start over deliberately, remove data/oral_output by hand.
         """
         for path in (
             self.config.oral_input_path,
             self.config.oral_output_path,
-            self.config.queue_path,
         ):
             self.file_manager.ensure_directory(path)
         Logger.log_step(3, "Prepared working directories", "COMPLETED")

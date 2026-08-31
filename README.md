@@ -86,8 +86,8 @@ Inside the job:
 
 1. **List the work.** Reads the tracking spreadsheet (or the reviewer app's
    list), skips anything already in the transcripts repository, and writes one
-   entry per interview into a queue folder on `/scratch`. No audio yet.
-2. **Transcribe.** Takes interviews from the queue one at a time, downloads
+   list of what still needs doing. No audio yet.
+2. **Transcribe.** Works through that list one at a time, downloads
    just that file, runs Parakeet-TDT and Sortformer on the two A100s at the
    same time, saves the results, and deletes its copy of the audio.
 3. **Upload.** Pushes the transcripts to the reviewer repository and writes

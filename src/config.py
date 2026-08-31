@@ -154,8 +154,6 @@ class PipelineConfig:
     # --- Queue Settings ---
     #: Seconds a worker holds a claim before it can be reaped by another job.
     #: Must exceed the slowest single interview.
-    lease_seconds: int = 5400
-    max_attempts: int = 3
     #: Stop claiming this many minutes into the job, leaving room to finish the
     #: file in hand. Keep it below the Slurm wall clock in config/run.slurm
     #: (currently 4 hours, so 225 minutes leaves 15 to finish and exit).
@@ -248,11 +246,6 @@ class PipelineConfig:
         """HuggingFace models cache path."""
         return os.path.join(self.cache_dir, "huggingface")
     
-    @property
-    def queue_path(self) -> str:
-        """Shared work queue. Must be on scratch, not a home directory."""
-        return os.path.join(self.data_dir, "queue")
-
     @property
     def prepared_path(self) -> str:
         """Scratch for decoded audio, removed as soon as the GPU is done."""

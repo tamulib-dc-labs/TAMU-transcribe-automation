@@ -51,7 +51,7 @@ You are running from the wrong folder. Run from the repository root:
 
 ```bash
 cd /scratch/user/$USER/asr/repo
-python scripts/transcribe.py status --queue ../data/queue
+python scripts/transcribe.py status --output ../data/oral_output
 ```
 
 ---
@@ -82,48 +82,30 @@ did not work on the compute node. Check the module name.
 
 ---
 
-## Nothing happens — the queue stays empty
+## The run finishes in seconds having done nothing
 
-```bash
-python scripts/transcribe.py status --queue data/queue
 ```
-
-```json
-{ "pending": 0, "claimed": 0, "done": 0, "failed": 0 }
+python scripts/transcribe.py status --output data/oral_output
 ```
 
 ```
-2026-08-29 14:45:16 INFO worker g082-... starting; queue=/scratch/.../data/queue
-2026-08-29 14:45:16 INFO queue drained; exiting
+2026-08-31 11:22:38 INFO 2 interview(s) listed, 2 already transcribed, 0 to do
 ```
 
-That is not an error — the worker started, found an empty queue and stopped.
-All four counts being zero means nothing was ever queued; if a previous run had
-transcribed anything, `done` would not be zero.
+Nothing was left to do. Possible reasons:
 
-Look further up the same log, at the listing step, which prints one of:
-
-```
-found 41 interview(s), 12 already done (12 from the transcripts repo), 29 newly queued
-```
-
-Possible reasons:
-
-- **Everything is already transcribed.** `fill` skips interviews that already
-  have a JSON file. Look in `data/oral_output/json/`.
-- **The spreadsheet has no rows to process.** Check the `as` column in your
-  tracking sheet.
+- **Everything is already transcribed.** Look in `data/oral_output/json/` and
+  in the transcripts repository. That is the normal case, and the numbers on
+  that line tell you so.
+- **`config_json_path` points at a file that is not there,** or is not a JSON
+  list. The job prints `Config file not found:` or `Could not parse` with the
+  path it tried. That path is relative to the top of the reviewer repo, so
+  `public/config-to-process.json`, not a path on scratch.
 - **Wrong source.** `--source local` needs `--input` pointing at a folder that
   actually contains audio.
-- **`config_json_path` points at a file that is not there,** or is not a JSON
-  list. The prepare job prints `Config file not found:` or `Could not parse`
-  with the path it tried. The path is relative to the top of the reviewer repo,
-  so `public/config-to-process.json`, not a path on scratch.
-- **Everything in the list is already in the transcripts repository.** The
-  prepare job prints how many it found. Set `check_transcripts_repo = False`
-  to transcribe them again.
-
----
+- **You want to redo work that is already done.** Delete the JSON files you
+  want regenerated from `data/oral_output/json/`, or set
+  `check_transcripts_repo = False` to ignore the repository.
 
 ## `TarFile.extract() got an unexpected keyword argument 'filter'`
 
@@ -199,8 +181,8 @@ in local mode.
 
 ```bash
 # on a login node, where the share is reachable
-python scripts/transcribe.py fill \
-    --queue  data/queue \
+python scripts/transcribe.py run \
+    --output data/oral_output \
     --output data/oral_output \
     --source local \
     --input  data/oral_input
@@ -215,7 +197,7 @@ Nothing else changes.
 See why:
 
 ```bash
-python scripts/transcribe.py status --queue data/queue --failures
+python scripts/transcribe.py status --output data/oral_output
 ```
 
 ```
@@ -226,31 +208,16 @@ iv_022: FileNotFoundError: source audio missing: /scratch/.../iv_022.mp3
 | Message | Meaning |
 |---|---|
 | `no speech recognised` | The file is silent, corrupt, or not really audio |
-| `source audio missing` | The path in the queue no longer exists. Not retried — it will never succeed |
+| `source audio missing` | The path in the work list no longer exists |
 | `CUDA out of memory` | Usually a very long file. Try `--sequential-models` |
 | `yt-dlp failed` | The streaming URL is dead or needs a login |
 
-Retry them after fixing the cause:
+Retry them after fixing the cause — just run again. Anything without a
+transcript on disk is picked up automatically:
 
 ```bash
-python scripts/transcribe.py requeue --queue data/queue
-sbatch run_transcribe.slurm
+python scripts/run_pipeline.py --from-json
 ```
-
----
-
-## The same interview keeps being redone
-
-`lease_seconds` is shorter than the file takes. Another worker assumes the first
-one died and starts over.
-
-Raise it in `src/config.py`:
-
-```python
-lease_seconds = 10800     # 3 hours
-```
-
-It must be longer than your slowest single recording.
 
 ---
 
@@ -282,7 +249,7 @@ speech and can drift on long recordings.
 words alone:
 
 ```bash
-python scripts/transcribe.py work --queue data/queue --output data/oral_output --no-diarize
+python scripts/transcribe.py run --output data/oral_output --source local --input data/oral_input --no-diarize
 ```
 
 If the words are fine without it, the transcription is good and only the speaker
@@ -302,7 +269,7 @@ Things worth trying, in order:
 2. **Try the noise reduction.** Off by default, but old tape is the case where
    it might help:
    ```bash
-   python scripts/transcribe.py work --queue Q --output OUT --denoise
+   python scripts/transcribe.py run --output OUT --source local --input IN --denoise
    ```
    Run one file both ways and compare.
 3. **Check the language.** These models are English-first.
@@ -314,7 +281,7 @@ Things worth trying, in order:
 ```bash
 squeue -u $USER                              # is it running?
 tail -f transcribe_Out.*                     # live log
-python scripts/transcribe.py status --queue data/queue
+python scripts/transcribe.py status --output data/oral_output
 scancel <jobid>                              # stop it
 ```
 

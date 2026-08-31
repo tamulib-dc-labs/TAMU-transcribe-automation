@@ -50,4 +50,3 @@ cache_dir = "/scratch/user/YOUR_NETID/asr/cache"
 # denoise = False                           # noise reduction before ASR
 # words_device = "cuda:0"
 # turns_device = "cuda:1"
-# lease_seconds = 5400                      # longer than your longest interview

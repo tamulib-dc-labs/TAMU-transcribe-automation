@@ -100,20 +100,11 @@ tape hiss is the case where it might.
 
 ---
 
-## The queue
-
-| Setting | Default | Notes |
-|---|---|---|
-| `lease_seconds` | `5400` (90 min) | How long a worker "holds" an interview before others assume it died |
-| `max_attempts` | `3` | Tries before giving up on a file |
-| `deadline_minutes` | `225` (3 h 45 m) | Workers stop taking new work this far into the job |
-| `max_files` | `0` | Cap interviews per run. `0` = no cap. Useful for a small test |
-
 ## Not redoing finished work
 
 | Setting | Default | Notes |
 |---|---|---|
-| `check_transcripts_repo` | `True` | Before queueing, check the transcripts repo for interviews that already have a JSON |
+| `check_transcripts_repo` | `True` | Before starting, check the transcripts repo for interviews that already have a JSON |
 
 `/scratch` is purged periodically, so `data/oral_output` is a cache, not a
 record. The GitHub transcripts repository is the record. Leave this on — with it
@@ -156,7 +147,7 @@ reviewer repo's `config-to-process.json` instead of the tracking spreadsheet.
 different jobs and neither affects the other:
 
 - `config_json_path` is the list of interviews to transcribe. Every entry in it
-  is queued.
+  is transcribed.
 - `output_config_path` is written at the *end* of a run, adding the JSON and
   VTT links for the transcripts that were produced, so the reviewer app can
   show them on the next visit. It is **not** consulted beforehand and does not
@@ -176,10 +167,6 @@ entries are written to `data/work_list.json` for the filling step.
 
 Each entry needs a **`name`** and an **`audio`** URL. Transcripts are named
 after `name`, so `02_00113` produces `02_00113.json` and `02_00113.vtt`.
-
-**`lease_seconds` must be longer than your slowest interview.** If a file takes
-2 hours and the lease is 90 minutes, another worker will assume the first one
-died and start the same file again. Raise it if your recordings are long.
 
 **`deadline_minutes` must be below the job's time limit.** The default 3 h 45 m
 sits under the 4-hour limit in `config/run.slurm`, leaving time to finish the
@@ -225,7 +212,6 @@ These are worked out from `working_dir` — you rarely change them.
 |---|---|
 | `oral_input_path` | `data/oral_input` — audio, in local mode |
 | `oral_output_path` | `data/oral_output` — the JSON and VTT files |
-| `queue_path` | `data/queue` — the work queue |
 | `hf_cache` | `<cache_dir>/huggingface` — model weights |
 
 ---
