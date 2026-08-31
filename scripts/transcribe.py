@@ -110,6 +110,16 @@ class Worker:
     def run(self) -> dict:
         self.install_signal_handlers()
         log.info("worker %s starting; queue=%s", self.identity, self.args.queue)
+        # Say which way the models run, every time. Telling parallel from
+        # sequential by reading interleaved NeMo output is guesswork, and
+        # guessing wrong costs a whole job.
+        log.info(
+            "models: %s (words=%s, turns=%s)",
+            "PARALLEL - two threads" if self.args.parallel_models
+            else "SEQUENTIAL - one at a time",
+            self.args.words_device,
+            self.args.turns_device,
+        )
 
         # Reaping on startup recovers tasks orphaned by a previous job hitting
         # its wall clock. Idempotent, so every worker can do it at once.
