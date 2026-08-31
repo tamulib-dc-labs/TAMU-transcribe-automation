@@ -125,18 +125,6 @@ Full description in [docs/OUTPUT.md](docs/OUTPUT.md).
 
 ---
 
-## Tests
-
-```bash
-pip install pytest
-pytest -q
-```
-
-272 tests. They need no GPU, no model weights and no internet — the models are
-stubbed, so they run on a login node or your laptop.
-
----
-
 ## Status
 
 **This has not yet been run on Grace.** Two things to confirm on your first run,

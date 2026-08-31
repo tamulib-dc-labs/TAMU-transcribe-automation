@@ -142,8 +142,9 @@ caller then moves the interview into `claimed/`.
 This matters more than it sounds. Two earlier designs let the same interview be
 claimed twice under eight workers — 3% of the time in one, 17% in the other.
 That means two GPUs transcribing the same recording and both writing the same
-output file. `tests/test_workqueue.py` has a test that would catch it coming
-back.
+output file. If you change `workqueue.py`, this is the property to preserve:
+a claim must be won by exactly one worker, decided by a single atomic
+filesystem operation.
 
 ---
 
@@ -243,27 +244,11 @@ src/git/, src/utils/     unchanged from v2.0
 the function that needs it.
 
 That keeps the package importable on a login node with no GPU software
-installed, which is what lets `fill`, `status`, `requeue` and the whole test
-suite run there.
+installed, which is what lets `fill`, `status` and `requeue` run there.
 
-`tests/test_import_isolation.py` checks every file in the package and fails if
-this is broken — which is deliberate, because breaking it does not fail on your
-machine where everything is installed. It fails later, on the cluster.
-
----
-
-## Tests
-
-```bash
-pytest -q          # 247 tests, no GPU, no weights, no network
-```
-
-The models are stubbed, so what is tested is everything around them: the queue
-under concurrent workers, matching words to speakers, decoding audio, subtitle
-line breaks, the output format, and the worker loop.
-
-The two model calls themselves are not covered. That is what your first real run
-on Grace is for.
+Breaking it does not fail on a machine where everything is installed. It fails
+later, on the cluster — so if you add an import, put it inside the function
+that needs it, not at the top of the module.
 
 ---
 

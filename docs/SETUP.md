@@ -113,17 +113,15 @@ python -c "import nemo.collections.asr; print('NeMo OK')"
 
 ---
 
-## Step 6 — Check the tests pass
+## Step 6 — Check the code loads
 
 ```bash
 cd repo
-pip install pytest
-pytest -q
+python -c "import src.pipeline, src.config; print('ok')"
 ```
 
-You should see `247 passed`. These do not use a GPU or download anything, so
-they are safe to run on a login node. If they pass, the code is installed
-correctly.
+`ok` means the dependencies are installed and the package imports. This does
+not use a GPU or download anything, so it is safe on a login node.
 
 ---
 
