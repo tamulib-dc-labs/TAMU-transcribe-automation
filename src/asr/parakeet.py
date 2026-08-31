@@ -48,6 +48,14 @@ class ParakeetConfig:
     att_context_size: tuple[int, int] = (256, 256)
     #: Ask the decoder for per-word confidence. Costs a little decode time.
     word_confidence: bool = True
+    #: How a word's confidence is computed. "max_prob" is the decoder's own
+    #: probability; "entropy" is NeMo's default and is a normalised Tsallis
+    #: entropy, which does not read like a probability.
+    confidence_method: str = "max_prob"
+    #: How token confidences collapse into one word score. NeMo defaults to
+    #: "min", which scores a word by its worst token; "prod" is the joint
+    #: probability of the word's tokens.
+    confidence_aggregation: str = "prod"
     batch_size: int = 1
 
 
@@ -104,11 +112,28 @@ class ParakeetBackend:
             self._enable_word_confidence()
 
     def _enable_word_confidence(self) -> None:
-        """Turn on per-word confidence, degrading gracefully if unavailable."""
+        """Turn on per-word confidence, degrading gracefully if unavailable.
+
+        The method and aggregation are set explicitly, because NeMo's defaults
+        are wrong for this use.
+
+        NeMo defaults to ``name="entropy"`` (Tsallis, alpha=0.33, exp-normed)
+        aggregated with ``"min"``. That is a normalised entropy, not a
+        probability, and ``min`` scores every word by its single worst token.
+        Together they produced a median word score of 0.05 and a maximum of
+        0.85 on real interview audio - no word ever looked confident, and the
+        reviewer UI's colour buckets were meaningless.
+
+        ``max_prob`` with ``prod`` gives the decoder's own probability for the
+        word: the product of its tokens' probabilities, which is a quantity
+        that reads the way a confidence should and is comparable with the
+        WhisperX scores this replaced.
+        """
         try:
             from omegaconf import open_dict
             from nemo.collections.asr.parts.utils.asr_confidence_utils import (
                 ConfidenceConfig,
+                ConfidenceMethodConfig,
             )
 
             decoding_cfg = self._model.cfg.decoding
@@ -117,9 +142,17 @@ class ParakeetBackend:
                     preserve_frame_confidence=True,
                     preserve_token_confidence=True,
                     preserve_word_confidence=True,
+                    aggregation=self.config.confidence_aggregation,
+                    method_cfg=ConfidenceMethodConfig(
+                        name=self.config.confidence_method
+                    ),
                 )
             self._model.change_decoding_strategy(decoding_cfg)
-            log.info("per-word confidence enabled")
+            log.info(
+                "per-word confidence enabled (%s, aggregation=%s)",
+                self.config.confidence_method,
+                self.config.confidence_aggregation,
+            )
         except Exception as exc:  # noqa: BLE001 - optional, never fatal
             log.warning(
                 "could not enable per-word confidence (%s); words will have "

@@ -29,6 +29,12 @@ DEFAULT_MAX_LINE_WIDTH = 42
 DEFAULT_MAX_LINE_COUNT = 2
 
 
+#: A recording whose first words arrive later than this probably lost its
+#: opening - worth saying so in the output rather than leaving it to be noticed
+#: by someone reading the transcript.
+LEAD_SILENCE_WARN_SECONDS = 30.0
+
+
 def to_whisperx_dict(
     transcript: Transcript,
     language: str = "en",
@@ -53,7 +59,41 @@ def to_whisperx_dict(
         result["alignment_stats"] = alignment_stats(transcript)
         result["speakers"] = transcript.meta.get("speakers") or []
         result["asr_model"] = (transcript.meta.get("transcription") or {}).get("model")
+        # Enough to explain a bad transcript without re-running the job: which
+        # audio, how long, how much of it the model actually covered, and any
+        # warnings the backends raised. A file whose first minute is missing
+        # shows up here as a first_word_at far from zero.
+        result["run"] = _run_summary(transcript)
     return result
+
+
+def _run_summary(transcript: Transcript) -> dict[str, Any]:
+    """Diagnostics that make a suspicious transcript readable on its own."""
+    meta = transcript.meta or {}
+    words = transcript.words
+    asr = meta.get("transcription") or {}
+
+    summary: dict[str, Any] = {
+        "audio": transcript.audio_path,
+        "audio_seconds": round(transcript.duration, 2),
+        "first_word_at": round(words[0].start, 2) if words else None,
+        "last_word_at": round(words[-1].end, 2) if words else None,
+        "diarization": (meta.get("diarization") or {}).get("status"),
+        "stage_seconds": meta.get("stage_seconds"),
+    }
+
+    # Silence at the head of a recording is normal; a minute of it is not, and
+    # it is the signature of the model dropping the opening.
+    lead = summary["first_word_at"]
+    if lead is not None and lead > LEAD_SILENCE_WARN_SECONDS:
+        summary["warning"] = (
+            f"no words in the first {lead:.0f}s of {transcript.duration:.0f}s"
+        )
+
+    warnings = list(asr.get("warnings") or [])
+    if warnings:
+        summary["asr_warnings"] = warnings
+    return summary
 
 
 def _word_dict(word, include_extras: bool) -> dict[str, Any]:
