@@ -6,7 +6,8 @@ timestamps and speaker turns land on a common measured time base.
 
 No module here imports torch or NeMo at module level - every model import lives
 inside the ``load()`` that needs it, so the orchestrator can import this package
-without a GPU stack installed. ``tests/test_import_isolation.py`` enforces it.
+without a GPU stack installed. Keep it that way: put model imports inside the
+function that needs them, never at the top of a module.
 """
 
 from .fusion import SpeakerTurn, fuse

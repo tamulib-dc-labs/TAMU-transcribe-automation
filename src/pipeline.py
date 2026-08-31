@@ -24,7 +24,6 @@ from typing import List, Dict, Any
 from src.cli import quote
 from src.config import get_config
 from src.utils.file_manager import FileManager, CommandRunner
-from src.asr.sources import slug
 from src.utils.logger import Logger
 from src.git.uploader import GitUploader
 from src.git.config_repo import ConfigRepoManager
@@ -234,6 +233,11 @@ class TranscriptionPipeline:
 
         if self.config.max_files:
             entries = entries[: self.config.max_files]
+
+        # Imported here, not at the top: this runs inside the job, and pulling
+        # in src.asr on the login node would load numpy for one 3-line
+        # function.
+        from src.asr.sources import slug
 
         # The output files are named after the entry's `name`, so record that
         # here for the upload step to match them up afterwards.
