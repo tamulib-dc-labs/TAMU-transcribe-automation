@@ -61,7 +61,7 @@ def load(name, filename):
 
 def run_prepare(config, tmp_path, monkeypatch, *, work_list, transcribed,
                 published=ALL_PUBLISHED):
-    """Run the prepare job for real, with git and the network stubbed out.
+    """Run the job's listing steps for real, with git and the network stubbed.
 
     work_list    what config-to-process.json contains
     published    what config.json already contains - must not affect anything
@@ -91,18 +91,22 @@ def run_prepare(config, tmp_path, monkeypatch, *, work_list, transcribed,
     monkeypatch.setattr(
         TranscriptionPipeline, "_list_transcribed", lambda self: sorted(transcribed)
     )
+    # Stop after the queue is built - the GPU work and the upload are not what
+    # these tests are about.
+    monkeypatch.setattr(TranscriptionPipeline, "_transcribe", lambda self: 0)
+    monkeypatch.setattr(TranscriptionPipeline, "_upload_to_github", lambda self: None)
+    monkeypatch.setattr(TranscriptionPipeline, "_update_config_repo", lambda self: None)
 
-    prepare = load("prepare_work", "prepare_work.py")
     fill = load("transcribe", "transcribe.py")
 
-    # prepare_work shells out to `transcribe.py fill`; run it in-process so the
+    # _fill_queue shells out to `transcribe.py fill`; run it in-process so the
     # real enumerate and skip-list logic is exercised, without a subprocess.
     def run_in_process(command, *a, **k):
         args = fill.build_parser().parse_args([str(c) for c in command[2:]])
         return type("Done", (), {"returncode": fill._fill(args)})()
 
     monkeypatch.setattr(subprocess, "run", run_in_process)
-    assert prepare.main([]) == 0
+    assert TranscriptionPipeline().execute() == 0
 
     from src.asr.workqueue import PENDING, FileWorkQueue
 

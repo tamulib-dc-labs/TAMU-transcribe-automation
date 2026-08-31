@@ -8,20 +8,19 @@ For diagrams, open [architecture.html](architecture.html).
 
 ## The shape of a run
 
-Three jobs, chained. `run_pipeline.py` submits all three and exits.
+One job does everything. `run_pipeline.py` submits it and exits.
 
 ```
-prepare      1 CPU task, no GPU   →  list the work into queue/pending/
-   │                                  (no audio moves)
-   ↓ afterok
-transcribe   4 array tasks, GPU   →  each takes one interview at a time
-   │
-   ↓ afterok
-publish      1 CPU task, no GPU   →  push transcripts, write back the links
+run_pipeline.py   login node   →  sbatch, then exit
+
+config/run.slurm  compute node →  1. list the work into queue/pending/
+                                     (no audio moves)
+                                  2. transcribe, one interview at a time
+                                  3. push the results, write back the links
 ```
 
-`afterok` means a job only starts if the one before it succeeded. Slurm
-enforces the order, so nothing has to sit and wait.
+The three steps are `scripts/run_job.py`, in one process. There is one job to
+submit, one log to read and one thing to re-run.
 
 **The login node only runs `sbatch`.** It is a shared machine that everyone
 logs into, and running real work there slows it down for everyone — TAMU asks
@@ -34,9 +33,7 @@ they can do the network steps at all.
 
 ---
 
-## Step 1 — the prepare job
-
-`scripts/prepare_work.py`, from `config/prepare.slurm`. One task, no GPU.
+## Step 1 — listing the work
 
 Reads the tracking spreadsheet (or the reviewer app's JSON list) and writes one
 small file per interview into `data/queue/pending/`.
@@ -53,9 +50,9 @@ Three kinds: `local` (already on disk), `url` (downloadable), `smb` (the file
 share).
 
 **In `--from-json` mode there is one extra step first.** The list of interviews
-lives in a GitHub repo, so the prepare job clones it, reads
-`config-to-process.json`, and writes the entries to `data/work_list.json`. The
-filling step then reads that file. Still no audio — only the list.
+lives in a GitHub repo, so the job clones it, reads `config-to-process.json`,
+and writes the entries to `data/work_list.json`. The filling step then reads
+that file. Still no audio — only the list.
 
 Each entry's audio comes from its **`audio`** field. Note that these entries
 also have a `url` field, which is the *transcript* link the reviewer app shows
@@ -65,19 +62,15 @@ speech model.
 Output files are named after the entry's `name`, so you can predict a
 transcript's filename from the config without looking at the audio.
 
-This step is **idempotent** — running it twice changes nothing.
-
-It runs in its own job, once, rather than in each of the four array tasks.
-Cloning the same repository from four tasks at the same moment would have them
-writing to one directory at once.
+This step is **idempotent** — running it twice changes nothing, which is what
+makes an interrupted run safe to re-submit.
 
 ### What counts as "already done"
 
 Two checks:
 
-1. **The transcripts repository.** The prepare job lists what already has a
-   JSON in `edge-grant-json-and-vtts` and writes the names to
-   `data/completed.json`.
+1. **The transcripts repository.** The job lists what already has a JSON in
+   `edge-grant-json-and-vtts` and writes the names to `data/completed.json`.
 2. **The local output folder**, `data/oral_output/json/`.
 
 The first check matters because **`/scratch` is purged periodically**. The local
@@ -95,10 +88,9 @@ made `config.json` unusable as both input and output.
 
 ---
 
-## Step 2 — the transcribe job
+## Step 2 — transcribing
 
-`scripts/transcribe.py`, from `config/run.slurm`. Four array tasks, each on a
-GPU node with two A100s. Each task loops:
+`scripts/transcribe.py work`, on a GPU node with two A100s. It loops:
 
 1. **Claim** the next interview from the queue.
 2. **Download** just that one file into node-local `$TMPDIR`.
@@ -224,9 +216,8 @@ Failures are handled by kind, not uniformly:
 ## Where the code lives
 
 ```
-config/prepare.slurm     job 1: list the work
-config/run.slurm         job 2: transcribe it (GPU)
-config/publish.slurm     job 3: upload the results
+config/run.slurm         the one job, submitted by run_pipeline.py
+scripts/run_job.py       what that job runs: list, transcribe, upload
 scripts/transcribe.py    fill / work / status / requeue
 scripts/run_pipeline.py  submit, wait, upload
 

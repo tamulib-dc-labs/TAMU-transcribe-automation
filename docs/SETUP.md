@@ -219,8 +219,7 @@ python repo/scripts/run_pipeline.py \
     --skip-upload
 ```
 
-That submits two jobs — one to fill the queue, one to transcribe — and exits.
-`--skip-upload` keeps this test off GitHub.
+That submits one job and exits. `--skip-upload` keeps this test off GitHub.
 
 Watch it:
 
@@ -254,16 +253,15 @@ python repo/scripts/run_pipeline.py
 `local_settings.py` and `export GIT_TOKEN=...` and `export SMB_PASSWORD=...`
 instead.)
 
-This submits three jobs and exits straight away:
+This submits one job and exits straight away:
 
 ```
-Submitted batch job 1234567     prepare
-Submitted batch job 1234568     transcribe  (after prepare)
-Submitted batch job 1234569     publish     (after transcribe)
+  Submitted job 1234567
+  squeue -u $USER
+  tail -f transcribe_Out.1234567
 ```
 
-Each one starts only if the one before it succeeded. You can log out; Slurm
-keeps them going. Nothing is transcribed on the login node.
+You can log out; Slurm keeps it going. Nothing runs on the login node.
 
 Useful flags:
 
@@ -273,7 +271,7 @@ Useful flags:
 | `--max-files 5` | Only do five interviews — good for a first real run |
 | `--skip-upload` | Leave transcripts on disk instead of pushing to GitHub |
 | `--no-diarize` | Words only, no speaker labels |
-| `--wait` | Stay attached and print job status until they finish |
+| `--wait` | Stay attached and print job status until it finishes |
 
 Re-running is always safe. Interviews that already have a transcript are
 skipped, so nothing is redone and nothing is deleted.
@@ -303,8 +301,8 @@ The GPU job asks for 4 hours. If a run is cut off, just start it again:
 python repo/scripts/run_pipeline.py
 ```
 
-To re-run only the transcription, without re-listing and re-uploading, submit
-the filled copy the last run left behind:
+You can also re-submit the filled copy the last run left behind, which skips
+re-reading the command line:
 
 ```bash
 sbatch run_transcribe.slurm
@@ -334,8 +332,8 @@ sbatch run_transcribe.slurm
 
 | Command | Does |
 |---|---|
-| `python scripts/run_pipeline.py` | Start (or resume) the whole pipeline |
-| `sbatch run_transcribe.slurm` | Re-run only the GPU step |
+| `python scripts/run_pipeline.py` | Start (or resume) the pipeline |
+| `sbatch run_transcribe.slurm` | Re-submit the last filled job |
 | `squeue -u $USER` | Are my jobs running? |
 | `scancel <jobid>` | Stop a job |
 | `transcribe.py status --queue Q` | How far along am I? |

@@ -171,8 +171,8 @@ You *can* point both at the same file. The run then reads it, transcribes
 everything listed, and overwrites it with the links — the pipeline prints a note
 when you do. Two files is still clearer.
 
-The repo is cloned by the prepare job, which reaches GitHub through WebProxy.
-The entries are written to `data/work_list.json` for the filling step.
+The repo is cloned inside the job, which reaches GitHub through WebProxy. The
+entries are written to `data/work_list.json` for the filling step.
 
 Each entry needs a **`name`** and an **`audio`** URL. Transcripts are named
 after `name`, so `02_00113` produces `02_00113.json` and `02_00113.vtt`.
@@ -232,9 +232,7 @@ These are worked out from `working_dir` — you rarely change them.
 
 ## The Slurm job
 
-Job size is in the Slurm files, not in `config.py`. There are three:
-`config/prepare.slurm` and `config/publish.slurm` are small CPU jobs;
-`config/run.slurm` is the GPU one worth tuning:
+Job size is in `config/run.slurm`, not in `config.py`:
 
 ```bash
 #SBATCH --array=0-3            # 4 workers at once

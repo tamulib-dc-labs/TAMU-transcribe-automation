@@ -227,22 +227,9 @@ class PipelineConfig:
         return os.path.join(self.working_dir, "config", "run.slurm")
 
     @property
-    def prepare_slurm_path(self) -> str:
-        """The job that fills the queue. No GPU."""
-        return os.path.join(self.working_dir, "config", "prepare.slurm")
-
-    @property
-    def publish_slurm_path(self) -> str:
-        """The job that uploads the transcripts. No GPU."""
-        return os.path.join(self.working_dir, "config", "publish.slurm")
-
-    @property
-    def prepare_script_path(self) -> str:
-        return os.path.join(self.working_dir, "scripts", "prepare_work.py")
-
-    @property
-    def publish_script_path(self) -> str:
-        return os.path.join(self.working_dir, "scripts", "publish.py")
+    def job_script_path(self) -> str:
+        """The script the Slurm job runs: the whole pipeline, end to end."""
+        return os.path.join(self.working_dir, "scripts", "run_job.py")
 
     @property
     def requirements_path(self) -> str:

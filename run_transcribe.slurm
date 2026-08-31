@@ -28,12 +28,12 @@
 # skipped and any that were in flight are put back.
 
 ml GCCcore/12.3.0 Python FFmpeg CUDA
-{{WEB_PROXY}}
+ml WebProxy
 
-source {{VENV_ACTIVATE_PATH}}
+source C:\lib_work\tamu-transcribe\venv/bin/activate
 
-export HF_HOME={{HF_CACHE}}
-export TORCH_HOME={{HF_CACHE}}
+export HF_HOME=/scratch/group/tamu_libr_dc/cache\huggingface
+export TORCH_HOME=/scratch/group/tamu_libr_dc/cache\huggingface
 mkdir -p "$HF_HOME"
 
-python {{JOB_SCRIPT}} {{JOB_ARGS}}
+python C:\lib_work\tamu-transcribe\scripts\run_job.py --skip-upload --no-diarize --max-files 3

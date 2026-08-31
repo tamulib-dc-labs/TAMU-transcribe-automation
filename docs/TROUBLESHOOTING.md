@@ -92,7 +92,22 @@ python scripts/transcribe.py status --queue data/queue
 { "pending": 0, "claimed": 0, "done": 0, "failed": 0 }
 ```
 
-Nothing was found to do. Possible reasons:
+```
+2026-08-29 14:45:16 INFO worker g082-... starting; queue=/scratch/.../data/queue
+2026-08-29 14:45:16 INFO queue drained; exiting
+```
+
+That is not an error — the worker started, found an empty queue and stopped.
+All four counts being zero means nothing was ever queued; if a previous run had
+transcribed anything, `done` would not be zero.
+
+Look further up the same log, at the listing step, which prints one of:
+
+```
+found 41 interview(s), 12 already done (12 from the transcripts repo), 29 newly queued
+```
+
+Possible reasons:
 
 - **Everything is already transcribed.** `fill` skips interviews that already
   have a JSON file. Look in `data/oral_output/json/`.

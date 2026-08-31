@@ -1,27 +1,27 @@
 """
 Pipeline orchestrator.
 
-Submits three dependent Slurm jobs and holds the steps they run:
+Two halves, and they run in different places:
 
-    prepare    scripts/prepare_work.py  -> _prepare_directories,
-                                           _prepare_config_repo,
-                                           _collect_completed
-    transcribe scripts/transcribe.py    -> Parakeet-TDT (words) and
-                                           Sortformer (speaker turns)
-    publish    scripts/publish.py       -> _upload_to_github,
-                                           _update_config_repo
+    submit()   on a login node. Fills in config/run.slurm and sbatch's it.
+               That is all a login node ever does.
 
-Only the submission happens on a login node, because `sbatch` can only be
-issued from one. Everything else runs on a compute node.
+    execute()  inside the Slurm job. The actual pipeline: list the work,
+               transcribe it, upload the results.
+
+Transcription itself is scripts/transcribe.py - Parakeet-TDT for words and
+timings, Sortformer for speaker turns.
 """
 
 import os
+import sys
 import time
 import json
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Any
 
+from src.cli import quote
 from src.config import get_config
 from src.utils.file_manager import FileManager, CommandRunner
 from src.asr.sources import slug
@@ -33,11 +33,15 @@ from src.git.config_repo import ConfigRepoManager
 class TranscriptionPipeline:
     """Main pipeline orchestrator."""
     
-    def __init__(self, skip_upload: bool = False, wait: bool = False):
+    def __init__(self, skip_upload: bool = False, wait: bool = False,
+                 job_args: list | None = None):
         """Initialize the pipeline with configuration."""
         self.config = get_config()
         self.skip_upload = skip_upload
         self.wait = wait
+        # Command-line options to hand to the job, so a flag typed on the
+        # login node is not silently lost on the way to the compute node.
+        self.job_args = list(job_args or [])
         self.file_manager = FileManager()
         self.command_runner = CommandRunner()
         
@@ -45,60 +49,137 @@ class TranscriptionPipeline:
         self._processed_entries: List[Dict[str, Any]] = []
         self._config_repo_manager = None
     
-    def run(self):
-        """Submit the pipeline to Slurm and, unless told otherwise, wait.
+    def submit(self) -> int:
+        """Fill in the job template and hand it to Slurm. Login node only.
 
-        Nothing is computed here. `sbatch` can only be issued from a login
-        node, so this submits three dependent jobs and every step of actual
-        work happens inside them:
-
-            prepare  ->  transcribe (array, GPU)  ->  publish
-
-        Each job only starts if the one before it succeeded.
+        `sbatch` is the one thing that has to happen on a login node, so it is
+        the only thing that does. Everything else is in execute(), which runs
+        inside the job.
         """
-        Logger.log_info("Starting Transcription Automation Pipeline")
+        Logger.log_info("Submitting the transcription pipeline")
         Logger.log_info(f"Working directory: {self.config.working_dir}")
         Logger.log_info(f"Source: {self.config.resolved_source}")
 
-        prepare_id = self._submit("prepare", self.config.prepare_slurm_path)
-        if not prepare_id:
+        with open(self.config.slurm_job_path, "r") as handle:
+            content = self._fill_template(handle.read())
+
+        written = os.path.join(self.config.working_dir, "run_transcribe.slurm")
+        with open(written, "w") as handle:
+            handle.write(content)
+
+        job_id = self.command_runner.submit_slurm_job(written)
+        if not job_id:
+            Logger.log_error("Nothing was submitted")
             return 1
 
-        transcribe_id = self._submit(
-            "transcribe", self.config.slurm_job_path, after=prepare_id
-        )
-        if not transcribe_id:
-            return 1
-
-        publish_id = None
-        if not self.skip_upload:
-            publish_id = self._submit(
-                "publish", self.config.publish_slurm_path, after=transcribe_id
-            )
-
         Logger.log_info("")
-        Logger.log_info("=" * 80)
-        Logger.log_info("  SUBMITTED")
-        Logger.log_info(f"    prepare    {prepare_id}")
-        Logger.log_info(f"    transcribe {transcribe_id}  (after prepare)")
-        if publish_id:
-            Logger.log_info(f"    publish    {publish_id}  (after transcribe)")
-        else:
-            Logger.log_info("    publish    skipped (--skip-upload)")
-        Logger.log_info("=" * 80)
-        Logger.log_info("")
+        Logger.log_info(f"  Submitted job {job_id}")
         Logger.log_info(f"  squeue -u $USER")
-        Logger.log_info(f"  python {self.config.transcribe_script_path} status "
-                        f"--queue {self.config.queue_path}")
+        Logger.log_info(f"  tail -f transcribe_Out.{job_id}")
         Logger.log_info("")
 
-        # Not waited on by default: the jobs are already chained by
-        # --dependency, so a login-node poll would add nothing but hours of
-        # sleeping. --wait is there for scripting a run end to end.
         if self.wait:
-            self._monitor_slurm_job(publish_id or transcribe_id)
+            self._monitor_slurm_job(job_id)
 
         return 0
+
+    # Kept so `run()` still means "do the normal thing" from a login node.
+    run = submit
+
+    def execute(self) -> int:
+        """The pipeline itself. Runs inside the Slurm job, never on a login node.
+
+        List the work, transcribe it, upload the results - in one process, so
+        there is one job to submit, one log to read and one thing to re-run.
+        """
+        Logger.log_info("Starting the transcription pipeline")
+        Logger.log_info(f"Source: {self.config.resolved_source}")
+
+        self._prepare_directories()
+
+        if self.config.resolved_source == "json" and not self._prepare_config_repo():
+            Logger.log_warning("No work list, so there is nothing to do.")
+            return 0
+
+        self._collect_completed()
+
+        if self._fill_queue() != 0:
+            Logger.log_error("Could not build the work queue")
+            return 1
+
+        if self._transcribe() != 0:
+            Logger.log_error("The transcription step failed")
+            return 1
+
+        if self.skip_upload:
+            Logger.log_info(
+                f"--skip-upload: transcripts left in {self.config.oral_output_path}"
+            )
+            return 0
+
+        self._upload_to_github()
+        if self.config.resolved_source == "json":
+            self._update_config_repo()
+
+        Logger.log_info("Done")
+        return 0
+
+    def _fill_queue(self) -> int:
+        """Enumerate the source into the work queue. Moves no audio."""
+        Logger.log_step(1, "List the work", "STARTED")
+
+        command = [
+            sys.executable, self.config.transcribe_script_path, "fill",
+            "--queue", self.config.queue_path,
+            "--output", self.config.oral_output_path,
+            "--source", self.config.resolved_source,
+            "--skip-list", self.config.completed_list_path,
+        ]
+        if self.config.resolved_source == "json":
+            command += ["--config-json", self.config.work_list_path]
+        else:
+            if self.config.resolved_source == "local":
+                command += ["--input", self.config.resolved_input_dir]
+            if self.config.max_files:
+                command += ["--max-files", str(self.config.max_files)]
+
+        code = subprocess.run(command).returncode
+        Logger.log_step(1, "List the work", "COMPLETED" if code == 0 else "FAILED")
+        return code
+
+    def _transcribe(self) -> int:
+        """Work the queue until it is empty or the deadline is reached."""
+        Logger.log_step(2, "Transcribe", "STARTED")
+
+        command = [
+            sys.executable, self.config.transcribe_script_path, "work",
+            "--queue", self.config.queue_path,
+            "--output", self.config.oral_output_path,
+            "--scratch", os.path.join(
+                os.environ.get("TMPDIR", self.config.data_dir), "audio"
+            ),
+            "--parakeet-model", self.config.asr_model,
+            "--sortformer-model", self.config.diarization_model,
+            "--words-device", self.config.words_device,
+            "--turns-device", self.config.turns_device,
+            "--deadline-minutes", str(self.config.deadline_minutes),
+            "--lease", str(self.config.lease_seconds),
+            "--max-attempts", str(self.config.max_attempts),
+            "--max-line-width", str(self.config.max_line_width),
+            "--max-line-count", str(self.config.max_line_count),
+        ]
+        if self.config.language:
+            command += ["--language", self.config.language]
+        if not self.config.diarize:
+            command.append("--no-diarize")
+        if self.config.denoise:
+            command.append("--denoise")
+        if not self.config.parallel_models:
+            command.append("--sequential-models")
+
+        code = subprocess.run(command).returncode
+        Logger.log_step(2, "Transcribe", "COMPLETED" if code == 0 else "FAILED")
+        return code
 
     def _prepare_directories(self):
         """Make sure the working directories exist.
@@ -247,60 +328,27 @@ class TranscriptionPipeline:
             if line.strip().endswith(".json")
         )
 
-    def _submit(self, name: str, template_path: str, after: str = "") -> str:
-        """Fill in a template and submit it, optionally after another job."""
-        Logger.log_step(name, f"Submit {name} job", "STARTED")
-        with open(template_path, "r") as handle:
-            content = self._fill_template(handle.read())
-
-        written = os.path.join(self.config.working_dir, f"run_{name}.slurm")
-        with open(written, "w") as handle:
-            handle.write(content)
-
-        job_id = self.command_runner.submit_slurm_job(
-            written, dependency=f"afterok:{after}" if after else None
-        )
-        if not job_id:
-            Logger.log_error(f"Failed to submit the {name} job")
-        return job_id or ""
-
     def _fill_template(self, slurm_content: str) -> str:
-        """Substitute every {{PLACEHOLDER}} in a Slurm template."""
-        # Inject paths
-        slurm_content = slurm_content.replace("{{VENV_ACTIVATE_PATH}}", f"{self.config.venv_path}/bin/activate")
-        slurm_content = slurm_content.replace("{{HF_CACHE}}", self.config.hf_cache)
-        slurm_content = slurm_content.replace("{{TRANSCRIBE_SCRIPT}}", self.config.transcribe_script_path)
-        slurm_content = slurm_content.replace("{{PREPARE_SCRIPT}}", self.config.prepare_script_path)
-        slurm_content = slurm_content.replace("{{PUBLISH_SCRIPT}}", self.config.publish_script_path)
-        slurm_content = slurm_content.replace("{{QUEUE_PATH}}", self.config.queue_path)
-        slurm_content = slurm_content.replace("{{ORAL_OUTPUT_PATH}}", self.config.oral_output_path)
-        slurm_content = slurm_content.replace("{{ASR_MODEL}}", self.config.asr_model)
-        slurm_content = slurm_content.replace("{{DIARIZATION_MODEL}}", self.config.diarization_model)
-        slurm_content = slurm_content.replace("{{DEADLINE_MINUTES}}", str(self.config.deadline_minutes))
-        slurm_content = slurm_content.replace("{{LEASE_SECONDS}}", str(self.config.lease_seconds))
-        slurm_content = slurm_content.replace("{{WORDS_DEVICE}}", self.config.words_device)
-        slurm_content = slurm_content.replace("{{TURNS_DEVICE}}", self.config.turns_device)
-        slurm_content = slurm_content.replace("{{MAX_ATTEMPTS}}", str(self.config.max_attempts))
-        slurm_content = slurm_content.replace("{{MAX_LINE_WIDTH}}", str(self.config.max_line_width))
-        slurm_content = slurm_content.replace("{{MAX_LINE_COUNT}}", str(self.config.max_line_count))
-        slurm_content = slurm_content.replace(
-            "{{WEB_PROXY}}",
-            "ml WebProxy" if self.config.use_web_proxy else "# WebProxy disabled in config",
-        )
-        # Optional worker flags, assembled from config.
-        extra = []
-        if self.config.language:
-            extra.append('--language "%s"' % self.config.language)
-        if not self.config.diarize:
-            extra.append("--no-diarize")
-        if self.config.denoise:
-            extra.append("--denoise")
-        if not self.config.parallel_models:
-            extra.append("--sequential-models")
-        slurm_content = slurm_content.replace("{{EXTRA_ARGS}}", " ".join(extra))
-        
+        """Substitute the {{PLACEHOLDER}}s in config/run.slurm.
+
+        Only four, because the job runs Python that imports src/config.py for
+        itself. Settings do not have to be threaded through the shell - change
+        config.py and the next job picks it up.
+        """
+        replacements = {
+            "{{VENV_ACTIVATE_PATH}}": f"{self.config.venv_path}/bin/activate",
+            "{{HF_CACHE}}": self.config.hf_cache,
+            "{{JOB_SCRIPT}}": self.config.job_script_path,
+            "{{JOB_ARGS}}": quote(self.job_args),
+            "{{WEB_PROXY}}": (
+                "ml WebProxy" if self.config.use_web_proxy
+                else "# WebProxy disabled in config"
+            ),
+        }
+        for placeholder, value in replacements.items():
+            slurm_content = slurm_content.replace(placeholder, value)
         return slurm_content
-    
+
     def _monitor_slurm_job(self, job_id: str):
         """Monitor SLURM job until completion."""
         Logger.log_step(9, f"Monitor SLURM job {job_id}", "STARTED")
