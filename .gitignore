@@ -68,3 +68,7 @@ temp/
 config/local_settings.py
 
 data/.transcripts-index/
+
+# Filled-in copy of config/run.slurm, written next to it at submit time
+run_transcribe.slurm
+transcribe_Out.*
