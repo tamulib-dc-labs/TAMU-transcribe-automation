@@ -1,7 +1,9 @@
 # Transcription: Parakeet-TDT (words) + Sortformer (speaker turns).
 # Both ship in nemo_toolkit[asr], so this is one model stack, not two.
 #
-# NeMo requires Python >= 3.10. On Grace: ml GCCcore/12.3.0 Python
+# Needs Python >= 3.11.4 (or 3.12). NeMo unpacks its own .nemo model files with
+# tarfile's filter= argument, which does not exist before then - GCCcore/12.3.0
+# ships 3.11.3 and every model load fails. Run `ml spider Python` to pick one.
 
 nemo_toolkit[asr]>=2.4
 torch
