@@ -21,9 +21,13 @@ and alignment error is bounded by Sortformer's 80 ms frame grid. A diarizer that
 writes its timestamps as generated text would give predicted times instead, and
 nothing constrains those to the audio.
 
-Both are NeMo, so they share one environment and one process. Pin them to
-different GPUs to overlap them; on a single GPU pass ``parallel=False``, since
-two threads on one device only contend.
+Both are NeMo, so they share one environment and one process. They run
+sequentially by default: ``parallel=True`` with two GPUs was tried on Grace and
+fails two ways - concurrent NeMo imports deadlock on the import lock, and
+PyTorch's thread-local current device makes a model pinned to cuda:1 build
+tensors on cuda:0, which raises an illegal memory access and poisons the CUDA
+context for the rest of the process. The overlap saved seconds against a
+download measured in minutes, so it was not a trade worth making.
 
 If diarization fails the run continues without speaker labels rather than
 failing outright - a transcript with word timings and no speakers is still

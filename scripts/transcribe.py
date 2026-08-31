@@ -74,6 +74,9 @@ class Worker:
         self._stop = False
         self.processed = 0
         self.failed = 0
+        #: Set when the process itself is no longer usable (see
+        #: _is_unrecoverable). Stops the loop rather than retrying.
+        self.fatal = False
 
     # ------------------------------------------------------------- lifecycle
 
@@ -116,6 +119,14 @@ class Worker:
 
         idle_since = None
         while True:
+            if self.fatal:
+                log.error(
+                    "stopping: the CUDA context is unusable, so nothing else "
+                    "would succeed in this process. Re-run the job; the "
+                    "unfinished interviews are still queued."
+                )
+                break
+
             reason = self.should_stop()
             if reason:
                 log.info("stopping (%s) after %d file(s)", reason, self.processed)
@@ -189,6 +200,7 @@ class Worker:
             self.failed += 1
             # A missing or unreadable source will never succeed on retry.
             permanent = isinstance(exc, (FileNotFoundError, IsADirectoryError))
+            self.fatal = _is_unrecoverable(exc)
             state = self.queue.fail(
                 task, f"{type(exc).__name__}: {exc}", retry=not permanent
             )
@@ -197,6 +209,24 @@ class Worker:
             _cleanup(prepared)
             if fetched is not None and sources.is_temporary(task.payload):
                 _cleanup(Path(fetched))
+
+
+#: A CUDA context does not recover. Once the driver reports one of these, every
+#: later CUDA call in the process fails too, so retrying in the same process
+#: burns the task's remaining attempts for nothing and can park good work in
+#: failed/. Better to hand the task back and let a fresh process take it.
+_POISONS_THE_PROCESS = (
+    "illegal memory access",
+    "device-side assert",
+    "CUDA error",
+    "CUDA_ERROR",
+    "cuDNN error",
+)
+
+
+def _is_unrecoverable(exc: BaseException) -> bool:
+    message = f"{type(exc).__name__}: {exc}"
+    return any(marker in message for marker in _POISONS_THE_PROCESS)
 
 
 def _cleanup(path) -> None:
@@ -325,8 +355,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"requeued {queue.requeue_failed()} task(s)")
         return 0
     if args.command == "work":
-        print(json.dumps(Worker(args).run(), indent=2))
-        return 0
+        worker = Worker(args)
+        print(json.dumps(worker.run(), indent=2))
+        # A worker that stopped because its CUDA context died has not done the
+        # work, and the steps after it must not treat that as success.
+        return 1 if worker.fatal else 0
 
     build_parser().print_help()
     return 2

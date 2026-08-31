@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=180G
-#SBATCH --gres=gpu:a100:2
+#SBATCH --gres=gpu:a100:1
 #SBATCH --partition=gpu
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@900
@@ -15,9 +15,10 @@
 #
 #   1. list the work        read the work list, skip what is already
 #                           transcribed in the json-and-vtts repo
-#   2. transcribe           Parakeet-TDT for words and timings on one A100,
-#                           Sortformer for speaker turns on the other, at the
-#                           same time, then fuse them by time
+#   2. transcribe           Parakeet-TDT for words and timings, then
+#                           Sortformer for speaker turns, then fuse them by
+#                           time. One GPU, one model at a time - see
+#                           parallel_models in src/config.py for why
 #   3. upload               push the json and vtt files, then write their
 #                           links into the reviewer app's config.json
 #

@@ -106,11 +106,26 @@ class PipelineConfig:
     diarization_model: str = "nvidia/diar_streaming_sortformer_4spk-v2.1"
     #: Attach speaker labels. Off = words and timings only.
     diarize: bool = True
-    #: Pin one model per GPU so they genuinely overlap. Same device for both
-    #: means they contend instead - set parallel_models False in that case.
+    #: Both models on one GPU, run one after the other.
+    #:
+    #: Running them in two threads on two GPUs was tried and does not work with
+    #: NeMo. Two failures, both reproduced on Grace:
+    #:
+    #:   1. Both models import NeMo inside load(). Two threads importing
+    #:      nemo.collections.asr at once deadlock on the import lock -
+    #:      "deadlock detected by _ModuleLock('nemo.collections.asr.models')".
+    #:   2. PyTorch's current device is thread-local. A model moved to cuda:1
+    #:      still builds intermediate tensors on the thread's current device,
+    #:      cuda:0, and mixing the two gives "CUDA error: an illegal memory
+    #:      access was encountered" - which poisons the CUDA context for the
+    #:      whole process, so everything after it fails too.
+    #:
+    #: The overlap was never worth much anyway: Parakeet takes about 1.6s and
+    #: Sortformer about 11s on a 90-minute interview, against several minutes
+    #: to download it. Sequential costs seconds and removes both failures.
     words_device: str = "cuda:0"
-    turns_device: str = "cuda:1"
-    parallel_models: bool = True
+    turns_device: str = "cuda:0"
+    parallel_models: bool = False
 
     language: Optional[str] = "en"  # tag written to the JSON; models self-detect
     max_line_width: int = 42
