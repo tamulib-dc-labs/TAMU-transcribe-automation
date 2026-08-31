@@ -102,22 +102,33 @@ class TranscriptionPipeline:
 
         self._collect_completed()
 
-        if self._transcribe() != 0:
-            Logger.log_error("The transcription step failed")
-            return 1
+        # Upload whatever got transcribed even if the step failed part way.
+        #
+        # The worker can die outright - NeMo's CUDA-graph decoder aborts the
+        # process from a C++ destructor, which no Python handler can catch -
+        # and when it does, the interviews it had already finished are complete
+        # files sitting on scratch. Refusing to upload them because a later one
+        # crashed loses good work and, since /scratch is purged, can lose it
+        # for good. The exit code still reports the failure.
+        failed = self._transcribe() != 0
+        if failed:
+            Logger.log_error(
+                "The transcription step failed; uploading whatever finished "
+                "before it did"
+            )
 
         if self.skip_upload:
             Logger.log_info(
                 f"--skip-upload: transcripts left in {self.config.oral_output_path}"
             )
-            return 0
+            return 1 if failed else 0
 
         self._upload_to_github()
         if self.config.resolved_source == "json":
             self._update_config_repo()
 
-        Logger.log_info("Done")
-        return 0
+        Logger.log_info("Done" if not failed else "Done, with failures")
+        return 1 if failed else 0
 
     def _transcribe(self) -> int:
         """List the work and transcribe it. One command, no queue.

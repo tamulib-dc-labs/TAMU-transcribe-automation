@@ -82,6 +82,42 @@ did not work on the compute node. Check the module name.
 
 ---
 
+## The job dies with `terminate called after throwing ... AcceleratorError`
+
+```
+[W CachingHostAllocator.cpp:26] Warning: Exception in pinned allocator free()
+terminate called after throwing an instance of 'c10::AcceleratorError'
+  what():  CUDA error: an illegal memory access was encountered
+Exception raised from currentStreamCaptureStatusMayInitCtx at CUDAGraphsC10Utils.h:73
+```
+
+NeMo's **CUDA-graph decoder**. It captures a CUDA graph for the decode loop and
+replays it; called repeatedly in one process it eventually reads freed memory
+and aborts. `currentStreamCaptureStatusMayInitCtx` is graph-capture code, and
+the abort happens in a C++ destructor, so no Python `except` can catch it - the
+process is simply gone.
+
+It is off by default here (`cuda_graph_decoder = False` in `ParakeetConfig`),
+which sets `decoding.greedy.use_cuda_graph_decoder = False`. Check the log
+line:
+
+```
+decoder configured: confidence=max_prob/prod, cuda_graph_decoder=off
+```
+
+If it says `on`, or the setting is missing, that is the cause. It has to be set
+on the *config*, not on the decoder object: `transcribe(timestamps=True)` calls
+`change_decoding_strategy()` internally and rebuilds the decoder, discarding
+anything set directly on it.
+
+NVIDIA also report the graph decoder being slower than the plain loop when
+timestamps are requested, which is always the case here, so turning it off
+costs nothing.
+
+Interviews that finished before the abort are still uploaded.
+
+---
+
 ## The run finishes in seconds having done nothing
 
 ```

@@ -81,6 +81,24 @@ class ParakeetConfig:
     #: "min", which scores a word by its worst token; "prod" is the joint
     #: probability of the word's tokens.
     confidence_aggregation: str = "prod"
+    #: NeMo's CUDA-graph decoder. Off, because it crashes.
+    #:
+    #: It captures a CUDA graph for the decode loop and replays it. Called
+    #: repeatedly in one process - which is exactly what transcribing a
+    #: collection in chunks does - it eventually dies inside the graph
+    #: machinery:
+    #:
+    #:   terminate called after throwing an instance of 'c10::AcceleratorError'
+    #:     what(): CUDA error: an illegal memory access was encountered
+    #:   Exception raised from currentStreamCaptureStatusMayInitCtx at
+    #:     CUDAGraphsC10Utils.h:73
+    #:
+    #: That is a C++ abort in a destructor, not a Python exception, so it
+    #: cannot be caught - the process is gone and the interview in hand is
+    #: lost. Turning the graph decoder off avoids it. NVIDIA also report the
+    #: graph decoder being *slower* than the plain loop when timestamps are
+    #: requested, which is always here, so there is nothing to trade away.
+    cuda_graph_decoder: bool = False
     batch_size: int = 1
 
 
@@ -133,57 +151,72 @@ class ParakeetBackend:
             model = model.to(device)
 
         self._model = model
-        if self.config.word_confidence:
-            self._enable_word_confidence()
+        self._configure_decoding()
 
-    def _enable_word_confidence(self) -> None:
-        """Turn on per-word confidence, degrading gracefully if unavailable.
+    def _configure_decoding(self) -> None:
+        """Set up the decoder: per-word confidence, and no CUDA graphs.
 
-        The method and aggregation are set explicitly, because NeMo's defaults
-        are wrong for this use.
+        Both live here because both are written into ``cfg.decoding`` and only
+        survive if they are set on the config rather than on the decoder
+        object - ``transcribe(timestamps=True)`` calls
+        ``change_decoding_strategy()`` internally, which rebuilds the decoder
+        from the config and would discard anything set directly.
 
-        NeMo defaults to ``name="entropy"`` (Tsallis, alpha=0.33, exp-normed)
-        aggregated with ``"min"``. That is a normalised entropy, not a
-        probability, and ``min`` scores every word by its single worst token.
-        Together they produced a median word score of 0.05 and a maximum of
-        0.85 on real interview audio - no word ever looked confident, and the
-        reviewer UI's colour buckets were meaningless.
-
-        ``max_prob`` with ``prod`` gives the decoder's own probability for the
-        word: the product of its tokens' probabilities, which is a quantity
-        that reads the way a confidence should and is comparable with the
-        WhisperX scores this replaced.
+        They are applied independently: turning confidence off must not leave
+        the CUDA-graph decoder on, because that one crashes the process.
         """
         try:
             from omegaconf import open_dict
-            from nemo.collections.asr.parts.utils.asr_confidence_utils import (
-                ConfidenceConfig,
-                ConfidenceMethodConfig,
-            )
+        except ImportError as exc:  # noqa: BLE001
+            log.warning("omegaconf unavailable (%s); using NeMo's decoder defaults", exc)
+            return
 
-            decoding_cfg = self._model.cfg.decoding
-            with open_dict(decoding_cfg):
-                decoding_cfg.confidence_cfg = ConfidenceConfig(
-                    preserve_frame_confidence=True,
-                    preserve_token_confidence=True,
-                    preserve_word_confidence=True,
-                    aggregation=self.config.confidence_aggregation,
-                    method_cfg=ConfidenceMethodConfig(
-                        name=self.config.confidence_method
-                    ),
-                )
+        decoding_cfg = self._model.cfg.decoding
+        changed = []
+
+        with open_dict(decoding_cfg):
+            if self.config.word_confidence:
+                try:
+                    from nemo.collections.asr.parts.utils.asr_confidence_utils import (
+                        ConfidenceConfig,
+                        ConfidenceMethodConfig,
+                    )
+
+                    decoding_cfg.confidence_cfg = ConfidenceConfig(
+                        preserve_frame_confidence=True,
+                        preserve_token_confidence=True,
+                        preserve_word_confidence=True,
+                        aggregation=self.config.confidence_aggregation,
+                        method_cfg=ConfidenceMethodConfig(
+                            name=self.config.confidence_method
+                        ),
+                    )
+                    changed.append(
+                        f"confidence={self.config.confidence_method}"
+                        f"/{self.config.confidence_aggregation}"
+                    )
+                except Exception as exc:  # noqa: BLE001 - scores are optional
+                    log.warning(
+                        "could not enable per-word confidence (%s); words will "
+                        "have timings but no score", exc,
+                    )
+
+            if not self.config.cuda_graph_decoder:
+                greedy = getattr(decoding_cfg, "greedy", None)
+                if greedy is None:
+                    log.warning(
+                        "no greedy decoding config; cannot turn off the CUDA "
+                        "graph decoder, which may abort the process"
+                    )
+                else:
+                    greedy.use_cuda_graph_decoder = False
+                    changed.append("cuda_graph_decoder=off")
+
+        try:
             self._model.change_decoding_strategy(decoding_cfg)
-            log.info(
-                "per-word confidence enabled (%s, aggregation=%s)",
-                self.config.confidence_method,
-                self.config.confidence_aggregation,
-            )
-        except Exception as exc:  # noqa: BLE001 - optional, never fatal
-            log.warning(
-                "could not enable per-word confidence (%s); words will have "
-                "timings but no score",
-                exc,
-            )
+            log.info("decoder configured: %s", ", ".join(changed) or "defaults")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not apply the decoding config (%s)", exc)
 
     def _enable_long_form(self) -> None:
         if self._long_form_enabled:
