@@ -38,7 +38,7 @@ sheet_url = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit"
 # or later to unpack its own model files, and an unversioned `ml Python` under
 # GCCcore/12.3.0 gives 3.11.3. Check `ml spider Python` on your cluster.
 # Rebuild the venv after changing this - the venv decides the interpreter.
-# module_load_command = "ml GCCcore/13.2.0 Python/3.11.5 FFmpeg CUDA"
+# module_load_command = "ml GCCcore/13.2.0 Python/3.11.5 FFmpeg CUDA"  # the default
 
 # --- where things live -----------------------------------------------------
 

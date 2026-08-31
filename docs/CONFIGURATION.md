@@ -235,7 +235,7 @@ These are worked out from `working_dir` — you rarely change them.
 ### Environment modules
 
 ```python
-module_load_command = "ml GCCcore/12.3.0 Python FFmpeg CUDA"
+module_load_command = "ml GCCcore/13.2.0 Python/3.11.5 FFmpeg CUDA"
 ```
 
 Goes into the job verbatim, in place of `{{MODULE_LOAD}}`. Pin the Python
