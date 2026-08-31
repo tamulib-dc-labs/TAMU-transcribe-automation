@@ -342,6 +342,7 @@ class TranscriptionPipeline:
         replacements = {
             "{{VENV_ACTIVATE_PATH}}": f"{self.config.venv_path}/bin/activate",
             "{{HF_CACHE}}": self.config.hf_cache,
+            "{{MODULE_LOAD}}": self.config.module_load_command,
             "{{JOB_SCRIPT}}": self.config.job_script_path,
             "{{JOB_ARGS}}": quote(self.job_args),
             "{{WEB_PROXY}}": (

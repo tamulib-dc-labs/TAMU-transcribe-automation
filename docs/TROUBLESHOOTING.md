@@ -125,6 +125,53 @@ Possible reasons:
 
 ---
 
+## `TarFile.extract() got an unexpected keyword argument 'filter'`
+
+Every model load fails, `processed: 0`, and the job finishes having transcribed
+nothing.
+
+**Cause: Python is too old.** A `.nemo` file is a tar archive, and NeMo unpacks
+it with tarfile's `filter=` argument. That argument exists in Python 3.12, and
+was backported to **3.11.4**, 3.10.12 and 3.9.17. Grace's unversioned
+`ml Python` under `GCCcore/12.3.0` is **3.11.3** — one patch release short.
+
+Check what you are actually running. The job prints it near the top of
+`transcribe_Out.<jobid>`:
+
+```
+python: /scratch/.../venv/bin/python
+version: 3.11.3
+```
+
+**The venv is what decides this, not the `ml` line.** `source venv/bin/activate`
+runs whichever interpreter the venv was built against. Changing
+`module_load_command` alone does nothing until the venv is rebuilt.
+
+Fix it in three steps:
+
+```bash
+# 1. find a Python >= 3.11.4
+ml spider Python
+
+# 2. point config/local_settings.py at it, e.g.
+#    module_load_command = "ml GCCcore/13.2.0 Python/3.11.5 FFmpeg CUDA"
+
+# 3. rebuild the venv with that interpreter
+cd /scratch/.../TAMU-transcribe-automation
+ml GCCcore/13.2.0 Python/3.11.5 FFmpeg CUDA      # your chosen modules
+rm -rf venv
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Re-run the pipeline and confirm the `version:` line now reads 3.11.4 or higher.
+
+If no suitable Python module exists on your cluster, the alternative is to pin
+an older NeMo that does not pass `filter=`, at the cost of the archive safety
+check that argument exists to provide.
+
+---
 ## Everything fails with "SMB_PASSWORD is not set"
 
 The job needs the password in its environment. Export it before submitting:

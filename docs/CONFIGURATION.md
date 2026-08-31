@@ -232,6 +232,23 @@ These are worked out from `working_dir` — you rarely change them.
 
 ## The Slurm job
 
+### Environment modules
+
+```python
+module_load_command = "ml GCCcore/12.3.0 Python FFmpeg CUDA"
+```
+
+Goes into the job verbatim, in place of `{{MODULE_LOAD}}`. Pin the Python
+version rather than letting `ml Python` choose — NeMo needs **3.11.4 or
+later** to unpack its own model files, and the unversioned default under
+`GCCcore/12.3.0` is 3.11.3. See
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md#tarfileextract-got-an-unexpected-keyword-argument-filter).
+
+Changing this does not change the interpreter on its own: the venv wins.
+Rebuild the venv after changing it.
+
+---
+
 Job size is in `config/run.slurm`, not in `config.py`:
 
 ```bash

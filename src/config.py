@@ -24,7 +24,18 @@ class PipelineConfig:
     venv_name: str = "venv"
     
     # --- Environment Modules ---
-    module_load_command: str = "ml GCCcore/12.3.0 Python FFmpeg CUDA"  # NeMo needs Python >= 3.10
+    #: Modules the Slurm job loads, verbatim. Pin the Python version rather
+    #: than letting `ml Python` pick: NeMo unpacks .nemo archives with
+    #: tarfile's ``filter=`` argument, which only exists in Python 3.11.4 and
+    #: later (3.12, or the 3.9.17/3.10.12/3.11.4 backports). GCCcore/12.3.0's
+    #: unversioned Python is 3.11.3 - one release short - and every model load
+    #: fails with "TarFile.extract() got an unexpected keyword argument
+    #: 'filter'". Run `ml spider Python` on Grace to see what is available.
+    #:
+    #: Changing this is not enough on its own: `source venv/bin/activate` runs
+    #: whichever interpreter the venv was built against, so rebuild the venv
+    #: after changing the version here. See docs/TROUBLESHOOTING.md.
+    module_load_command: str = "ml GCCcore/12.3.0 Python FFmpeg CUDA"
     
     # --- Data Directories ---
     data_folder: str = "data"

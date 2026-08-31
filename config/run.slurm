@@ -27,7 +27,7 @@
 # 4-hour wall clock. Interrupted? Submit again: finished interviews are
 # skipped and any that were in flight are put back.
 
-ml GCCcore/12.3.0 Python FFmpeg CUDA
+{{MODULE_LOAD}}
 {{WEB_PROXY}}
 
 source {{VENV_ACTIVATE_PATH}}
@@ -35,5 +35,11 @@ source {{VENV_ACTIVATE_PATH}}
 export HF_HOME={{HF_CACHE}}
 export TORCH_HOME={{HF_CACHE}}
 mkdir -p "$HF_HOME"
+
+# Which interpreter actually ran, for the log. `source venv/bin/activate` uses
+# whatever Python the venv was built against, NOT whatever `ml` just loaded -
+# so this is the version that matters, and it is worth seeing it every run.
+echo "python: $(which python)"
+python -c "import sys; print('version:', sys.version.split()[0])"
 
 python {{JOB_SCRIPT}} {{JOB_ARGS}}
