@@ -159,6 +159,8 @@ class TranscriptionPipeline:
             ),
             "--parakeet-model", self.config.asr_model,
             "--sortformer-model", self.config.diarization_model,
+            "--long-audio", self.config.long_audio,
+            "--chunk-seconds", str(self.config.chunk_seconds),
             "--words-device", self.config.words_device,
             "--turns-device", self.config.turns_device,
             "--deadline-minutes", str(self.config.deadline_minutes),

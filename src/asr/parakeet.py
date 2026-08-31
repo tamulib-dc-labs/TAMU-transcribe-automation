@@ -33,9 +33,21 @@ log = logging.getLogger(__name__)
 
 DEFAULT_PARAKEET_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 
-#: Beyond this many seconds, switch the encoder to local attention. Full
-#: attention handles ~24 minutes on an A100 80GB; local attention reaches ~3
-#: hours at some cost in accuracy.
+#: Longest file this will hand to the model in one piece.
+#:
+#: NVIDIA quote 24 minutes with full attention *on an A100 80GB*. Grace's A100s
+#: are 40GB, so the real ceiling here is roughly half that. 8 minutes leaves
+#: room for the decoder's own working set on top of the encoder activations.
+FULL_ATTENTION_SECONDS = 8 * 60
+
+#: Overlap between consecutive chunks. Long enough that a word spanning a
+#: boundary is whole in at least one chunk; the duplicate half is dropped at
+#: the overlap midpoint.
+CHUNK_OVERLAP_SECONDS = 15.0
+
+#: Kept for the local-attention strategy: past this, switch the encoder rather
+#: than chunk. Reaches ~3 hours but costs accuracy, which is why it is no
+#: longer the default.
 LONG_FORM_THRESHOLD = 20 * 60
 
 
@@ -43,8 +55,21 @@ LONG_FORM_THRESHOLD = 20 * 60
 class ParakeetConfig:
     model_id: str = DEFAULT_PARAKEET_MODEL
     device: str = "auto"
-    #: Switch to local attention for files longer than :data:`LONG_FORM_THRESHOLD`.
-    auto_long_form: bool = True
+    #: How to handle audio longer than one full-attention pass.
+    #:
+    #: "chunk"  - split into FULL_ATTENTION_SECONDS pieces and transcribe each
+    #:            with full attention, then stitch. Best accuracy; the model
+    #:            never sees a degraded attention window.
+    #: "local"  - switch the encoder to local attention and transcribe in one
+    #:            pass. Faster, reaches ~3 hours, costs accuracy.
+    #: "none"   - hand the whole file over regardless. Will run out of memory
+    #:            on anything long.
+    long_audio: str = "chunk"
+    #: Seconds per chunk under "chunk". Lower it if the job runs out of memory.
+    chunk_seconds: float = FULL_ATTENTION_SECONDS
+    #: Overlap between chunks, so a word on a boundary survives in one of them.
+    chunk_overlap_seconds: float = CHUNK_OVERLAP_SECONDS
+    #: Local-attention window, used only when long_audio is "local".
     att_context_size: tuple[int, int] = (256, 256)
     #: Ask the decoder for per-word confidence. Costs a little decode time.
     word_confidence: bool = True
@@ -182,18 +207,104 @@ class ParakeetBackend:
         self.load()
         started = time.time()
 
-        if (
-            self.config.auto_long_form
-            and duration is not None
-            and duration > LONG_FORM_THRESHOLD
-        ):
+        strategy = self.config.long_audio
+        too_long = duration is not None and duration > self.config.chunk_seconds
+
+        if strategy == "chunk" and too_long:
+            return self._transcribe_chunked(audio_path, duration, started)
+
+        if strategy == "local" and duration is not None and duration > LONG_FORM_THRESHOLD:
             self._enable_long_form()
 
         outputs = self._model.transcribe(
             [str(audio_path)], timestamps=True, batch_size=self.config.batch_size
         )
-        hypothesis = outputs[0]
-        return self._to_transcription(hypothesis, started)
+        return self._to_transcription(outputs[0], started)
+
+    def _transcribe_chunked(
+        self, audio_path: str | Path, duration: float, started: float
+    ) -> WordTranscription:
+        """Transcribe a long file as overlapping full-attention chunks.
+
+        Each chunk is short enough for the encoder's full attention window, so
+        no accuracy is given up to a degraded one. Chunks overlap, and where
+        two cover the same instant the later chunk's words are dropped up to
+        the middle of the overlap - one clean cut, no duplicated or missing
+        words at the seam.
+
+        Timestamps are shifted by each chunk's own offset, so the result is on
+        the same measured time base as an unchunked run, which is what lets the
+        speaker turns still line up.
+        """
+        import tempfile
+
+        from .audio import TARGET_SR, load_audio, slice_audio, to_wav_bytes
+
+        samples, rate = load_audio(audio_path, TARGET_SR)
+        step = max(1.0, self.config.chunk_seconds - self.config.chunk_overlap_seconds)
+        starts = []
+        cursor = 0.0
+        while cursor < duration:
+            starts.append(cursor)
+            cursor += step
+
+        log.info(
+            "%s: %.0fs is longer than one %.0fs full-attention pass; "
+            "transcribing as %d overlapping chunk(s)",
+            Path(audio_path).name, duration, self.config.chunk_seconds, len(starts),
+        )
+
+        words: list[Word] = []
+        texts: list[str] = []
+        warnings: list[str] = []
+
+        with tempfile.TemporaryDirectory(prefix="parakeet-chunks-") as workdir:
+            for index, offset in enumerate(starts):
+                chunk, chunk_start = slice_audio(
+                    samples, rate, offset, min(offset + self.config.chunk_seconds, duration)
+                )
+                if chunk.size == 0:
+                    continue
+
+                path = Path(workdir) / f"chunk{index:03d}.wav"
+                path.write_bytes(to_wav_bytes(chunk, rate))
+
+                outputs = self._model.transcribe(
+                    [str(path)], timestamps=True, batch_size=self.config.batch_size
+                )
+                part = self._to_transcription(outputs[0], started)
+                warnings.extend(part.warnings)
+
+                # Cut both sides of every overlap at its midpoint, so each
+                # instant of audio is claimed by exactly one chunk. Trimming
+                # only the later chunk's head would leave the first half of
+                # the overlap covered twice - which shows up as duplicated
+                # words and timestamps that go backwards at every seam.
+                half = self.config.chunk_overlap_seconds / 2.0
+                first, last = index == 0, index == len(starts) - 1
+                lower = 0.0 if first else half
+                upper = float("inf") if last else self.config.chunk_seconds - half
+
+                kept = []
+                for word in part.words:
+                    if word.start < lower or word.start >= upper:
+                        continue
+                    word.start += chunk_start
+                    word.end += chunk_start
+                    kept.append(word)
+
+                words.extend(kept)
+                if kept:
+                    texts.append(" ".join(w.text for w in kept))
+
+        log.info("chunked transcription produced %d words", len(words))
+        return WordTranscription(
+            words=words,
+            text=" ".join(texts).strip(),
+            model=self.config.model_id,
+            elapsed_sec=time.time() - started,
+            warnings=sorted(set(warnings)),
+        )
 
     def _to_transcription(self, hypothesis, started: float) -> WordTranscription:
         warnings: list[str] = []

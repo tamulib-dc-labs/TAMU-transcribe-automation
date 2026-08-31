@@ -256,7 +256,10 @@ def build_engine(args) -> Transcriber:
     return Transcriber(
         TranscriberConfig(
             parakeet=ParakeetConfig(
-                model_id=args.parakeet_model, device=args.words_device
+                model_id=args.parakeet_model,
+                device=args.words_device,
+                long_audio=args.long_audio,
+                chunk_seconds=args.chunk_seconds,
             ),
             sortformer=SortformerConfig(
                 model_id=args.sortformer_model, device=args.turns_device
@@ -312,6 +315,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     work.add_argument("--parakeet-model", default=DEFAULT_PARAKEET_MODEL)
     work.add_argument("--sortformer-model", default=DEFAULT_SORTFORMER_MODEL)
+    work.add_argument(
+        "--long-audio", choices=("chunk", "local", "none"), default="chunk",
+        help="how to handle audio longer than one full-attention pass. "
+             "chunk: split and transcribe each piece at full accuracy "
+             "(default). local: one pass with local attention, faster but "
+             "less accurate. none: hand the whole file over",
+    )
+    work.add_argument(
+        "--chunk-seconds", type=float, default=480.0,
+        help="seconds per chunk with --long-audio chunk. Lower it if the job "
+             "runs out of GPU memory",
+    )
     work.add_argument("--words-device", default="cuda:0", help="GPU for Parakeet")
     work.add_argument("--turns-device", default="cuda:1",
                       help="GPU for Sortformer. Different from --words-device is "

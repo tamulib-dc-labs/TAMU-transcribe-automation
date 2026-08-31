@@ -104,6 +104,21 @@ class PipelineConfig:
     #: Speaker turns. Shares Parakeet's FastConformer frontend and its 16 kHz
     #: input, so both sides of the fusion sit on one measured time base.
     diarization_model: str = "nvidia/diar_streaming_sortformer_4spk-v2.1"
+    #: How to transcribe audio longer than one full-attention pass.
+    #:
+    #: "chunk"  - split it and transcribe each piece with full attention, then
+    #:            stitch the results back onto one timeline. Best accuracy.
+    #: "local"  - one pass with the encoder switched to local attention.
+    #:            Faster, reaches ~3 hours, but NVIDIA note it costs accuracy.
+    #: "none"   - hand the whole file over and hope it fits.
+    long_audio: str = "chunk"
+
+    #: Seconds per chunk. NVIDIA quote 24 minutes of full attention on an A100
+    #: *80GB*; Grace's A100s are 40GB, so the usable window is around half
+    #: that, and 8 minutes leaves room for the decoder on top. Lower it if a
+    #: job runs out of GPU memory; raise it for slightly better context.
+    chunk_seconds: float = 480.0
+
     #: Attach speaker labels. Off = words and timings only.
     diarize: bool = True
     #: Both models on one GPU, run one after the other.

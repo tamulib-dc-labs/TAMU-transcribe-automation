@@ -232,6 +232,30 @@ These are worked out from `working_dir` — you rarely change them.
 
 ## The Slurm job
 
+### Long audio
+
+```python
+long_audio    = "chunk"     # chunk | local | none
+chunk_seconds = 480         # 8 minutes
+```
+
+Parakeet handles about 24 minutes in one pass with full attention **on an A100
+80GB**. Grace's A100s are 40GB, so the usable window is roughly half that.
+
+`chunk` splits anything longer into overlapping 8-minute pieces, transcribes
+each at full accuracy, and stitches them back onto one timeline. A 1-hour
+interview becomes 8 chunks. The seams are cut at the midpoint of a 15-second
+overlap, so no word is dropped or duplicated.
+
+`local` is the alternative: one pass with the encoder switched to local
+attention. It reaches 3 hours and is faster, but NVIDIA note it costs accuracy,
+and it is what produced garbled text and a missing first minute on a
+29-minute interview here.
+
+Lower `chunk_seconds` if a job runs out of GPU memory.
+
+---
+
 ### Environment modules
 
 ```python
